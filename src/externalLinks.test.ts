@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  SAFARI_HANDOFF_MS,
   isExternalHref,
   isIosStandaloneWebApp,
+  isTauriDesktopShell,
   openExternal,
-  safariSchemeUrl,
 } from './externalLinks';
 
 const IPHONE_UA =
@@ -36,19 +35,6 @@ describe('isExternalHref', () => {
   it('answers with no base or origin, the way the anchor component calls it', () => {
     expect(isExternalHref('docs/agent-quickstart.md', undefined, undefined)).toBe(false);
     expect(isExternalHref('https://github.com/la-creche/Panda', undefined, undefined)).toBe(true);
-  });
-});
-
-describe('safariSchemeUrl', () => {
-  it('prefixes http(s) URLs', () => {
-    expect(safariSchemeUrl('https://example.com/a?b=1#c')).toBe('x-safari-https://example.com/a?b=1#c');
-    expect(safariSchemeUrl('http://127.0.0.1:8530/')).toBe('x-safari-http://127.0.0.1:8530/');
-  });
-
-  it('answers null for anything that is not http(s)', () => {
-    expect(safariSchemeUrl('mailto:tech@example.com')).toBeNull();
-    expect(safariSchemeUrl('x-safari-https://example.com')).toBeNull();
-    expect(safariSchemeUrl('not a url')).toBeNull();
   });
 });
 
@@ -99,55 +85,43 @@ describe('isIosStandaloneWebApp', () => {
   });
 });
 
-/** Stubs the three globals `openExternal` reads and records its effects. */
-function stubPlatform({ ios, hidden }: { ios: boolean; hidden: boolean }): string[] {
+describe('isTauriDesktopShell', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('only recognizes a Tauri webview', () => {
+    vi.stubGlobal('window', {});
+    expect(isTauriDesktopShell()).toBe(false);
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
+    expect(isTauriDesktopShell()).toBe(true);
+  });
+});
+
+/** Stubs the globals `openExternal` reads and records its effects. */
+function stubPlatform({ ios }: { ios: boolean }): string[] {
   const calls: string[] = [];
   vi.stubGlobal('navigator', { userAgent: ios ? IPHONE_UA : ANDROID_UA, standalone: ios });
   vi.stubGlobal('window', {
     matchMedia: () => ({ matches: false }),
     location: { assign: (url: string) => calls.push(`assign:${url}`) },
     open: (url: string) => calls.push(`open:${url}`),
-    setTimeout: (fn: () => void, ms: number) => globalThis.setTimeout(fn, ms),
   });
-  vi.stubGlobal('document', { hidden });
   return calls;
 }
 
 describe('openExternal', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.useRealTimers();
   });
 
   it('opens a new tab on every platform but an iOS home-screen web app', () => {
-    const calls = stubPlatform({ ios: false, hidden: false });
+    const calls = stubPlatform({ ios: false });
     openExternal('https://example.com/a');
     expect(calls).toEqual(['open:https://example.com/a']);
   });
 
-  it('hands the URL to Safari on an iOS home-screen web app', () => {
-    vi.useFakeTimers();
-    const calls = stubPlatform({ ios: true, hidden: false });
+  it('uses ordinary out-of-scope navigation on an iOS home-screen web app', () => {
+    const calls = stubPlatform({ ios: true });
     openExternal('https://example.com/a');
-    expect(calls).toEqual(['assign:x-safari-https://example.com/a']);
-  });
-
-  it('falls back to in-app navigation when iOS ignores the Safari scheme', () => {
-    vi.useFakeTimers();
-    const calls = stubPlatform({ ios: true, hidden: false });
-    openExternal('https://example.com/a');
-    vi.advanceTimersByTime(SAFARI_HANDOFF_MS);
-    expect(calls).toEqual([
-      'assign:x-safari-https://example.com/a',
-      'assign:https://example.com/a',
-    ]);
-  });
-
-  it('stays put when Safari did take the hand-off', () => {
-    vi.useFakeTimers();
-    const calls = stubPlatform({ ios: true, hidden: true });
-    openExternal('https://example.com/a');
-    vi.advanceTimersByTime(SAFARI_HANDOFF_MS);
-    expect(calls).toEqual(['assign:x-safari-https://example.com/a']);
+    expect(calls).toEqual(['assign:https://example.com/a']);
   });
 });

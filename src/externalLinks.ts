@@ -9,8 +9,8 @@
  * Two rules, in order:
  *   - every external link opens in a new tab, never in place;
  *   - in an iOS home-screen web app there are no tabs and no address bar, so
- *     "a new tab" would replace Panda with the destination page. There the
- *     URL is handed to the Safari app instead.
+ *     "a new tab" would replace Panda with the destination page. There an
+ *     out-of-scope navigation lets iOS choose the browser UI.
  */
 
 /** The navigator facts iOS detection reads. Injectable so node tests can
@@ -58,6 +58,12 @@ export function isIosStandaloneWebApp(ctx?: IosContext): boolean {
   return facts.navigator.standalone === true || facts.displayModeStandalone;
 }
 
+/** Panda's Tauri desktop shell has one webview and no new-window handler.
+ * Keep ordinary anchors there, preserving its existing in-webview behavior. */
+export function isTauriDesktopShell(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
 function documentBaseUri(): string | undefined {
   return typeof document === 'undefined' ? undefined : document.baseURI;
 }
@@ -90,42 +96,16 @@ export function isExternalHref(
 }
 
 /**
- * The Safari hand-off URL for an http(s) URL, or null for anything else.
- *
- * iOS maps `x-safari-https://host/path` onto `https://host/path` opened in
- * the Safari app. The scheme is undocumented — Apple commits to nothing —
- * so `openExternal` always keeps an in-app fallback behind it.
- */
-export function safariSchemeUrl(url: string): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-  return `x-safari-${parsed.href}`;
-}
-
-/** How long the Safari hand-off gets before the in-app fallback fires. */
-export const SAFARI_HANDOFF_MS = 700;
-
-/**
  * Opens one external URL. Every caller reaches this in the click gesture —
  * an async `window.open` gets popup-blocked (see the elicitation card).
  *
- * Normal browsers get a new tab. An iOS home-screen web app gets the Safari
- * hand-off above; when iOS does not act on the scheme the app is still on
- * screen, so the timer navigates in-app rather than leaving the tap dead.
- * When Safari does take over, the app is hidden and the fallback never runs.
+ * Normal browsers get a new tab. On an iOS Home Screen web app, manifest
+ * scope sends the external navigation to the system rather than keeping it
+ * inside Panda.
  */
 export function openExternal(url: string): void {
-  const safari = safariSchemeUrl(url);
-  if (safari !== null && isIosStandaloneWebApp()) {
-    window.location.assign(safari);
-    window.setTimeout(() => {
-      if (!document.hidden) window.location.assign(url);
-    }, SAFARI_HANDOFF_MS);
+  if (isIosStandaloneWebApp()) {
+    window.location.assign(url);
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');

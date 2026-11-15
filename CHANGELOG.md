@@ -18,16 +18,15 @@ follow the releases published from this repository.
 
 ### Fixed
 
-- **External links open in a new tab, and in Safari from an iOS home-screen
-  install** — every link Panda renders (markdown links in the message
-  stream, the onboarding doc links, the url-mode elicitation card) now
-  carries `target="_blank"`, so it never replaces Panda with the
-  destination page. An iOS home-screen web app has no tabs and no address
-  bar, so there the URL goes to the Safari app through the `x-safari-`
-  scheme instead; that scheme is undocumented, and if iOS ignores it the
-  app navigates in-app after 700 ms, which is what it did before.
+- **External links open in a new tab, and leave an iOS Home Screen web app**
+  — Panda now ships a standalone web-app manifest. Every external link Panda
+  renders (markdown links in the message stream, onboarding doc links, and
+  the url-mode elicitation card) uses the browser's normal new-tab behavior.
+  In an iOS Home Screen web app, an external URL is outside Panda's manifest
+  scope, so iOS owns the handoff rather than Panda naming a specific browser.
   Panda's own routes and non-http schemes (`mailto:`, `tel:`) keep the
-  browser default.
+  browser default. The Tauri desktop shell retains its existing in-window
+  link behavior until it gains a native new-window handler.
 
 ## [0.2.0] - 2026-09-09
 

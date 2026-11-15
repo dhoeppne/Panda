@@ -1,18 +1,17 @@
 import type { ReactNode } from 'react';
-import { isExternalHref, isIosStandaloneWebApp, openExternal } from '../externalLinks';
+import { isExternalHref, isIosStandaloneWebApp, isTauriDesktopShell } from '../externalLinks';
 
 /**
  * The anchor Panda renders for links it did not author: markdown links in the
  * message stream (the shared `markdownComponents` override) and the
  * onboarding doc links.
  *
- * An external http(s) link opens in a new tab. The target attribute stays on
- * the element, so the platform keeps offering its own actions on it — copy
- * link address, open in background, middle click. In an iOS home-screen web
- * app a new tab would replace Panda itself, so the click goes to
- * `openExternal` instead. Panda's own routes and non-http schemes
- * (`mailto:`, `tel:`) render as plain anchors: the browser default is
- * already right for them.
+ * An external http(s) link opens in a new tab. In an iOS home-screen web app
+ * it remains an ordinary, out-of-scope anchor so the manifest scope can hand
+ * it to iOS instead of creating a browsing context inside Panda. The Tauri
+ * desktop shell also keeps its ordinary anchors because it has no new-window
+ * handler. Panda's own routes and non-http schemes (`mailto:`, `tel:`) stay
+ * plain anchors: the browser default is already right for them.
  */
 export function ExternalLink({ href, title, children }: {
   href?: string;
@@ -26,19 +25,19 @@ export function ExternalLink({ href, title, children }: {
       </a>
     );
   }
+  if (isIosStandaloneWebApp() || isTauriDesktopShell()) {
+    return (
+      <a href={href} title={title}>
+        {children}
+      </a>
+    );
+  }
   return (
     <a
       href={href}
       title={title}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={(event) => {
-        // Everywhere else the target attribute is already the right answer,
-        // and leaving the event alone keeps copy-link and middle click working.
-        if (!isIosStandaloneWebApp()) return;
-        event.preventDefault();
-        openExternal(href);
-      }}
     >
       {children}
     </a>
