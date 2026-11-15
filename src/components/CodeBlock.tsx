@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { Check, Copy } from 'lucide-react';
 import type { Components } from 'react-markdown';
+import { ExternalLink } from './ExternalLink';
 import { highlightCode, type TokenSpan } from '../highlight/highlighter';
 import { useI18n } from '../i18n/context';
 
@@ -101,10 +102,13 @@ function toText(node: ReactNode): string {
 /**
  * Shared react-markdown renderer overrides. react-markdown emits fenced
  * blocks as <pre><code class="language-x">text</code></pre>; we lift the
- * info-string tag and text out into CodeBlock. Module-level const so the
+ * info-string tag and text out into CodeBlock, and hand every link to
+ * ExternalLink so it opens in a new tab (in an iOS home-screen web app, in
+ * the Safari app instead — see externalLinks.ts). Module-level const so the
  * memoized paragraph renderers keep stable props.
  */
 export const markdownComponents: Components = {
+  a: ExternalLink,
   pre: ({ children }) => {
     const child = Array.isArray(children) ? children[0] : children;
     if (isValidElement<{ className?: string; children?: ReactNode }>(child)) {

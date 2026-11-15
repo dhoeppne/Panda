@@ -16,6 +16,19 @@ follow the releases published from this repository.
   limits) pauses the queue until Resume. Queued messages are not echoed
   into the stream until they are sent, and live in memory only.
 
+### Fixed
+
+- **External links open in a new tab, and in Safari from an iOS home-screen
+  install** — every link Panda renders (markdown links in the message
+  stream, the onboarding doc links, the url-mode elicitation card) now
+  carries `target="_blank"`, so it never replaces Panda with the
+  destination page. An iOS home-screen web app has no tabs and no address
+  bar, so there the URL goes to the Safari app through the `x-safari-`
+  scheme instead; that scheme is undocumented, and if iOS ignores it the
+  app navigates in-app after 700 ms, which is what it did before.
+  Panda's own routes and non-http schemes (`mailto:`, `tel:`) keep the
+  browser default.
+
 ## [0.2.0] - 2026-09-09
 
 The positioning pivot to "a ready-made UI for agent developers" — README
