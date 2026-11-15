@@ -2,6 +2,7 @@ import { CircleCheckBig, Link2 } from 'lucide-react';
 import { Button } from '@astryxdesign/core/Button';
 import type { ElicitationResponse } from '../protocol/types';
 import type { AttachedElicitation } from '../projector/messageStream';
+import { openExternal } from '../externalLinks';
 import './ElicitationCard.css';
 import { useI18n } from '../i18n/context';
 
@@ -77,9 +78,9 @@ export function ElicitationUrlCard({ elicitation, onOpen, onDecline }: {
           label={t('elicit.url.open')}
           isDisabled={!safety.host}
           clickAction={() => {
-            // Must stay synchronous in the click gesture — an async
-            // window.open (after the RPC round-trip) gets popup-blocked.
-            window.open(request.url, '_blank', 'noopener,noreferrer');
+            // Must stay synchronous in the click gesture — an async open
+            // (after the RPC round-trip) gets popup-blocked.
+            openExternal(request.url);
             onOpen(request.id);
           }}
         />

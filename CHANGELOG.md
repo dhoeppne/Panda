@@ -16,6 +16,18 @@ follow the releases published from this repository.
   limits) pauses the queue until Resume. Queued messages are not echoed
   into the stream until they are sent, and live in memory only.
 
+### Fixed
+
+- **External links open in a new tab, and leave an iOS Home Screen web app**
+  — Panda now ships a standalone web-app manifest. Every external link Panda
+  renders (markdown links in the message stream, onboarding doc links, and
+  the url-mode elicitation card) uses the browser's normal new-tab behavior.
+  In an iOS Home Screen web app, an external URL is outside Panda's manifest
+  scope, so iOS owns the handoff rather than Panda naming a specific browser.
+  Panda's own routes and non-http schemes (`mailto:`, `tel:`) keep the
+  browser default. The Tauri desktop shell opens external links through the
+  operating system's default URL handler.
+
 ## [0.2.0] - 2026-09-09
 
 The positioning pivot to "a ready-made UI for agent developers" — README

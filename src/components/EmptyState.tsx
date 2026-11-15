@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChevronDown, PlayCircle } from 'lucide-react';
 import { Button } from '@astryxdesign/core/Button';
 import { navigate } from '../routes';
+import { ExternalLink } from './ExternalLink';
 import { useI18n } from '../i18n/context';
 import './EmptyState.css';
 
@@ -33,18 +34,14 @@ export function EmptyState() {
             <p className="empty-state-step-kicker">{t('empty.desktopKicker')}</p>
             <p className="empty-state-step-body">
               {t('empty.desktopBody')}{' '}
-              <a href={t('empty.quickstartUrl')} target="_blank" rel="noreferrer">
-                {t('empty.quickstartLink')}
-              </a>
+              <ExternalLink href={t('empty.quickstartUrl')}>{t('empty.quickstartLink')}</ExternalLink>
             </p>
           </div>
           <div className="empty-state-step">
             <p className="empty-state-step-kicker">{t('empty.webKicker')}</p>
             <p className="empty-state-step-body">
               {t('empty.webBody')}{' '}
-              <a href={t('empty.bridgeUrl')} target="_blank" rel="noreferrer">
-                {t('empty.bridgeLink')}
-              </a>
+              <ExternalLink href={t('empty.bridgeUrl')}>{t('empty.bridgeLink')}</ExternalLink>
             </p>
           </div>
         </div>
@@ -64,9 +61,7 @@ export function EmptyState() {
           {existingOpen && (
             <p className="empty-state-step-body">
               {t('empty.existingBody')}{' '}
-              <a href={t('empty.userGuideUrl')} target="_blank" rel="noreferrer">
-                {t('empty.userGuideLink')}
-              </a>
+              <ExternalLink href={t('empty.userGuideUrl')}>{t('empty.userGuideLink')}</ExternalLink>
             </p>
           )}
         </div>

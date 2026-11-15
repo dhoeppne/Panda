@@ -1,9 +1,9 @@
 # panda-desktop
 
-Tauri v2 shell hosting the workspace's Vite app, plus the one capability a
-browser cannot have: spawning local stdio agents and streaming their pipes.
-The product is the webview; this executable exists only for that process
-plane (ADR
+Tauri v2 shell hosting the workspace's Vite app, with two native boundaries:
+spawning local stdio agents and handing external links to the operating
+system's default URL handler. The product is the webview; its process plane
+is described by ADR
 [0007](../docs/adr/0007-desktop-shell-and-stdio-transport.md)).
 
 Status: the shell ships as **beta** — its stdio path is covered by the
@@ -33,14 +33,17 @@ because the config is embedded via `generate_context!`.
   waits synchronously — tao ends its loop in `std::process::exit`, so
   `kill_on_drop` alone never fires; a webview (re)load sweeps the same way
   via `on_page_load`, because the reloaded JS state no longer owns the old
-  children. Windows terminates directly (no SIGTERM).
+  children. Windows terminates directly (no SIGTERM). It also initializes
+  Tauri's `opener` plugin; only `http(s)`, `mailto:`, and `tel:` URLs are
+  permitted by the default capability, and external web links use it to open
+  the operating system's default handler instead of another webview window.
 - `src-tauri/tauri.conf.json` — window/bundle config. `frontendDist` is
   resolved **relative to `src-tauri`**, so it must point at `../../dist`
   (the repo-root build output), and `devUrl` pins `127.0.0.1:5173`.
 - `src/desktop/boot.ts` (repo root) — the webview side: registers the stdio
-  transport factory over the IPC commands, lazily imported by `main.tsx`
-  only when `__TAURI_INTERNALS__` is present, so the browser bundle never
-  carries `@tauri-apps/api`.
+  transport factory and default-URL opener over Tauri IPC, lazily imported by
+  `main.tsx` only when `__TAURI_INTERNALS__` is present, so the browser bundle
+  never carries Tauri APIs.
 
 ## Shell acceptance harness
 
