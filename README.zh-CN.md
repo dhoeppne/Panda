@@ -3,8 +3,8 @@
   <h1>Panda</h1>
   <p><strong>给 agent 开发者的现成客户端:你的 agent 说 ACP,Panda 就是它的界面。</strong></p>
   <p>
-    <a href="https://github.com/lukaisluka/Panda/actions/workflows/ci.yml"><img src="https://github.com/lukaisluka/Panda/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <a href="https://github.com/lukaisluka/Panda/releases"><img src="https://img.shields.io/github/v/release/lukaisluka/Panda" alt="Release" /></a>
+    <a href="https://github.com/la-creche/Panda/actions/workflows/ci.yml"><img src="https://github.com/la-creche/Panda/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/la-creche/Panda/releases"><img src="https://img.shields.io/github/v/release/la-creche/Panda" alt="Release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" /></a>
   </p>
   <p>
@@ -36,10 +36,10 @@
 
 ## 获取 Panda
 
-按场景取用——连自己开发的 stdio agent 用桌面版;零安装先看界面用网页版(内置脚本化 [demo](https://lukaisluka.github.io/Panda/#/demo),不需要任何 agent):
+按场景取用——连自己开发的 stdio agent 用桌面版;网页版内置脚本化 demo,不需要任何 agent:
 
-- **网页版(零安装)**——<https://lukaisluka.github.io/Panda/> 在任何现代浏览器里直接用。指向一个 ACP-over-WebSocket 端点,消息流即刻上线。
-- **桌面版(macOS / Windows)— beta**——从 [GitHub Releases](https://github.com/lukaisluka/Panda/releases) 下载。桌面壳可用——与网页版同一套界面与协议栈,另加 stdio 直连 agent——但尚未经过专门的组织化发布测试,以 beta 对待;日常使用推荐网页版:
+- **网页版(本地运行)**——本 fork 不托管网页版。运行 `pnpm dev`(需要 Node 24+ 与 pnpm 11,见下方「开发」一节)后打开 `http://127.0.0.1:5173`。指向一个 ACP-over-WebSocket 端点,消息流即刻上线。
+- **桌面版(macOS / Windows)— beta**——从 [GitHub Releases](https://github.com/la-creche/Panda/releases) 下载。桌面壳可用——与网页版同一套界面与协议栈,另加 stdio 直连 agent——但尚未经过专门的组织化发布测试,以 beta 对待;日常使用推荐网页版:
   - macOS:`Panda_<ver>_aarch64.dmg`
   - Windows:`Panda_<ver>_x64-setup.exe`(安装版),或 `Panda_<ver>_x64-portable.zip`(免安装;两者是同一个应用——用户数据留在各平台的用户数据目录,不随 exe 走)
 
@@ -76,7 +76,7 @@
 - **双向图片**——agent 声明能力后可粘贴或选择图片发送;用户/agent 消息、思考块与工具结果里的图片都会渲染
 - **长会话**——虚拟化消息列表,流式增长时自动跟随底部,只在用户真正滚动时脱离
 - **桌面版直连 stdio agent**——在本机拉起一条 ACP agent 命令,通过其管道以 NDJSON 对话,生命周期全程托管
-- **脚本化 demo 回放**——同一套界面由脚本化 agent 驱动,无需后端:<https://lukaisluka.github.io/Panda/#/demo>(`?demo=long` 播放 80 轮长会话)
+- **脚本化 demo 回放**——同一套界面由脚本化 agent 驱动,无需后端:运行 `pnpm dev` 后打开 `#/demo`(`?demo=long` 播放 80 轮长会话)
 
 ## 顺带支持现成 agent
 
