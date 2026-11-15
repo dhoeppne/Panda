@@ -58,10 +58,13 @@ export function isIosStandaloneWebApp(ctx?: IosContext): boolean {
   return facts.navigator.standalone === true || facts.displayModeStandalone;
 }
 
-/** Panda's Tauri desktop shell has one webview and no new-window handler.
- * Keep ordinary anchors there, preserving its existing in-webview behavior. */
-export function isTauriDesktopShell(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+/** The desktop host supplies the OS default-application opener at boot. */
+export type ExternalUrlOpener = (url: string) => void;
+
+let externalUrlOpener: ExternalUrlOpener | undefined;
+
+export function setExternalUrlOpener(opener: ExternalUrlOpener | undefined): void {
+  externalUrlOpener = opener;
 }
 
 function documentBaseUri(): string | undefined {
@@ -101,11 +104,15 @@ export function isExternalHref(
  *
  * Normal browsers get a new tab. On an iOS Home Screen web app, manifest
  * scope sends the external navigation to the system rather than keeping it
- * inside Panda.
+ * inside Panda. The desktop shell delegates to the OS default URL handler.
  */
 export function openExternal(url: string): void {
   if (isIosStandaloneWebApp()) {
     window.location.assign(url);
+    return;
+  }
+  if (externalUrlOpener) {
+    externalUrlOpener(url);
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');

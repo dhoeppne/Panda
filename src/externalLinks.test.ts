@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isExternalHref,
   isIosStandaloneWebApp,
-  isTauriDesktopShell,
   openExternal,
+  setExternalUrlOpener,
 } from './externalLinks';
 
 const IPHONE_UA =
@@ -85,17 +85,6 @@ describe('isIosStandaloneWebApp', () => {
   });
 });
 
-describe('isTauriDesktopShell', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('only recognizes a Tauri webview', () => {
-    vi.stubGlobal('window', {});
-    expect(isTauriDesktopShell()).toBe(false);
-    vi.stubGlobal('window', { __TAURI_INTERNALS__: {} });
-    expect(isTauriDesktopShell()).toBe(true);
-  });
-});
-
 /** Stubs the globals `openExternal` reads and records its effects. */
 function stubPlatform({ ios }: { ios: boolean }): string[] {
   const calls: string[] = [];
@@ -111,6 +100,7 @@ function stubPlatform({ ios }: { ios: boolean }): string[] {
 describe('openExternal', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    setExternalUrlOpener(undefined);
   });
 
   it('opens a new tab on every platform but an iOS home-screen web app', () => {
@@ -123,5 +113,12 @@ describe('openExternal', () => {
     const calls = stubPlatform({ ios: true });
     openExternal('https://example.com/a');
     expect(calls).toEqual(['assign:https://example.com/a']);
+  });
+
+  it('uses the desktop host opener when one is registered', () => {
+    const calls = stubPlatform({ ios: false });
+    setExternalUrlOpener((url) => calls.push(`native:${url}`));
+    openExternal('https://example.com/a');
+    expect(calls).toEqual(['native:https://example.com/a']);
   });
 });

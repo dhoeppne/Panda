@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { isExternalHref, isIosStandaloneWebApp, isTauriDesktopShell } from '../externalLinks';
+import { isExternalHref, isIosStandaloneWebApp, openExternal } from '../externalLinks';
 
 /**
  * The anchor Panda renders for links it did not author: markdown links in the
@@ -8,10 +8,10 @@ import { isExternalHref, isIosStandaloneWebApp, isTauriDesktopShell } from '../e
  *
  * An external http(s) link opens in a new tab. In an iOS home-screen web app
  * it remains an ordinary, out-of-scope anchor so the manifest scope can hand
- * it to iOS instead of creating a browsing context inside Panda. The Tauri
- * desktop shell also keeps its ordinary anchors because it has no new-window
- * handler. Panda's own routes and non-http schemes (`mailto:`, `tel:`) stay
- * plain anchors: the browser default is already right for them.
+ * it to iOS instead of creating a browsing context inside Panda. The desktop
+ * shell replaces its new-window request with the OS default URL handler.
+ * Panda's own routes and non-http schemes (`mailto:`, `tel:`) stay plain
+ * anchors: the browser default is already right for them.
  */
 export function ExternalLink({ href, title, children }: {
   href?: string;
@@ -25,7 +25,7 @@ export function ExternalLink({ href, title, children }: {
       </a>
     );
   }
-  if (isIosStandaloneWebApp() || isTauriDesktopShell()) {
+  if (isIosStandaloneWebApp()) {
     return (
       <a href={href} title={title}>
         {children}
@@ -38,6 +38,13 @@ export function ExternalLink({ href, title, children }: {
       title={title}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={(event) => {
+        // Tauri has no browser tab. Its lazily loaded host registers the
+        // native opener, which hands the URL to the OS default application.
+        if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return;
+        event.preventDefault();
+        openExternal(href);
+      }}
     >
       {children}
     </a>

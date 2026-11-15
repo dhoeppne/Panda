@@ -1,8 +1,8 @@
 // Panda desktop shell — the process plane (issue #125).
 //
 // The product is the webview (repo root's Vite build, hash-routed, zero
-// server); this executable exists only to host it plus the one capability a
-// browser cannot have: spawning stdio agents and streaming their pipes.
+// server); this executable hosts the process plane for stdio agents and the
+// narrow native boundary that opens external URLs with the default handler.
 // Why not tauri-plugin-shell: its scope model whitelists specific binaries,
 // while Panda's product shape is "the user configures any local command" —
 // an explicit process plane owned by this app is both simpler and honest
@@ -234,6 +234,7 @@ fn sweep_orphans(table: &ProcTable) -> usize {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(ProcTable::default())
         .invoke_handler(tauri::generate_handler![stdio_spawn, stdio_write, stdio_kill])
         // Webview (re)load sweep (#7): a reload destroys the JS state that

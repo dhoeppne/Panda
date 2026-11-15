@@ -25,8 +25,8 @@ follow the releases published from this repository.
   In an iOS Home Screen web app, an external URL is outside Panda's manifest
   scope, so iOS owns the handoff rather than Panda naming a specific browser.
   Panda's own routes and non-http schemes (`mailto:`, `tel:`) keep the
-  browser default. The Tauri desktop shell retains its existing in-window
-  link behavior until it gains a native new-window handler.
+  browser default. The Tauri desktop shell opens external links through the
+  operating system's default URL handler.
 
 ## [0.2.0] - 2026-09-09
 

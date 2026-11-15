@@ -1,10 +1,12 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   createStdioTransportFactory,
   type StdioChildProcess,
   type StdioSpawn,
 } from '../acp/transport/StdioTransport';
 import { setStdioTransportFactory } from '../acp/transport/stdioHost';
+import { setExternalUrlOpener } from '../externalLinks';
 
 /**
  * Desktop host boot (issue #125), loaded lazily by main.tsx when
@@ -106,5 +108,10 @@ function tauriStdioSpawn(): StdioSpawn {
 /** Registers the desktop host's stdio capability. Idempotent by effect. */
 export function bootDesktop(): void {
   setStdioTransportFactory(createStdioTransportFactory(tauriStdioSpawn()));
+  setExternalUrlOpener((url) => {
+    void openUrl(url).catch((error: unknown) => {
+      console.warn(`[panda/desktop] could not open external URL ${url}`, error);
+    });
+  });
   console.info('[panda/desktop] stdio transport factory registered (desktop host)');
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Panda main window: the app's own commands plus the core defaults. No plugin surfaces are exposed — the shell's IPC is exactly the stdio process plane.",
+  "description": "Panda main window: stdio process commands plus the default URL opener for external links.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "opener:default"]
 }
