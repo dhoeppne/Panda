@@ -3,8 +3,8 @@
   <h1>Panda</h1>
   <p><strong>A ready-made client for agent developers: your agent speaks ACP, Panda is its UI.</strong></p>
   <p>
-    <a href="https://github.com/lukaisluka/Panda/actions/workflows/ci.yml"><img src="https://github.com/lukaisluka/Panda/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-    <a href="https://github.com/lukaisluka/Panda/releases"><img src="https://img.shields.io/github/v/release/lukaisluka/Panda" alt="Release" /></a>
+    <a href="https://github.com/la-creche/Panda/actions/workflows/ci.yml"><img src="https://github.com/la-creche/Panda/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/la-creche/Panda/releases"><img src="https://img.shields.io/github/v/release/la-creche/Panda" alt="Release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" /></a>
   </p>
   <p>
@@ -36,10 +36,10 @@ For a ten-minute, write-it-from-scratch walkthrough see the [agent quickstart](d
 
 ## Get Panda
 
-Pick by scenario — the desktop build connects stdio agents you develop; the web app is zero-install with a built-in [scripted demo](https://lukaisluka.github.io/Panda/#/demo), no agent needed:
+Pick by scenario — the desktop build connects stdio agents you develop; the web app includes a built-in scripted demo, no agent needed:
 
-- **Web (zero install)** — <https://lukaisluka.github.io/Panda/> runs in any modern browser. Point it at an ACP-over-WebSocket endpoint and the message stream is live.
-- **Desktop (macOS / Windows) — beta** — grab a build from [GitHub Releases](https://github.com/lukaisluka/Panda/releases). The desktop shell works — same UI and protocol stack as the web version, plus direct stdio agents — but it has not been through organized release testing yet, so it ships as beta; day-to-day, prefer the web version:
+- **Web (run locally)** — this fork does not host the web app. Run `pnpm dev` (needs Node 24+ and pnpm 11, see [Development](#development)), then open `http://127.0.0.1:5173`. Point the app at an ACP-over-WebSocket endpoint and the message stream is live.
+- **Desktop (macOS / Windows) — beta** — grab a build from [GitHub Releases](https://github.com/la-creche/Panda/releases). The desktop shell works — same UI and protocol stack as the web version, plus direct stdio agents — but it has not been through organized release testing yet, so it ships as beta; day-to-day, prefer the web version:
   - macOS: `Panda_<ver>_aarch64.dmg`
   - Windows: `Panda_<ver>_x64-setup.exe` (installer), or `Panda_<ver>_x64-portable.zip` (no install; the app is the same either way — user data stays in the per-user data directory, it does not travel with the exe)
 
@@ -76,7 +76,7 @@ All of the following works out of the box for any integrated agent — this is t
 - **Images both ways** — paste or pick images for capable agents; render images in user/agent messages, thoughts and tool results
 - **Long sessions** — a virtualized message list that follows streaming growth yet detaches only on genuine user scroll
 - **Direct stdio agents on desktop** — spawn a local ACP agent command and talk NDJSON over its pipes, managed lifecycle included
-- **Scripted demo replay** — the same UI driven by a scripted agent, no backend needed: <https://lukaisluka.github.io/Panda/#/demo> (`?demo=long` streams an 80-turn session)
+- **Scripted demo replay** — the same UI driven by a scripted agent, no backend needed: run `pnpm dev`, then open `#/demo` (`?demo=long` streams an 80-turn session)
 
 ## Works with existing agents, too
 
