@@ -20,8 +20,9 @@
  * The capability keys Panda gates on: the v1 agent declarations, plus
  * `rewind`, the creche extension `_creche/session/rewind` that an agent
  * declares as `agentCapabilities._meta["creche/rewind"]`.
+ * `embeddedContext` gates the non-image files of a prompt (`resource` blocks).
  */
-export type CapabilityKey = 'image' | 'loadSession' | 'list' | 'resume' | 'delete' | 'rewind';
+export type CapabilityKey = 'image' | 'embeddedContext' | 'loadSession' | 'list' | 'resume' | 'delete' | 'rewind';
 
 /** Agent-side declarations for every capability key. */
 export type AgentCapabilityDeclarations = Record<CapabilityKey, boolean>;
@@ -53,12 +54,13 @@ export const PANDA_HOST_CAPABILITIES: HostCapabilities = {
 };
 
 /**
- * Which host shard each capability depends on, if any. All five v1 gates are
+ * Which host shard each capability depends on, if any. All seven gates are
  * agent-declared session/prompt features with no host dependency; future
  * keys (client-side MCP, elicitation UI) declare theirs here.
  */
 export const CAPABILITY_HOST_SHARDS: Record<CapabilityKey, HostCapabilityShard | null> = {
   image: null,
+  embeddedContext: null,
   loadSession: null,
   list: null,
   resume: null,
@@ -132,6 +134,7 @@ export function effectiveCapabilities(
 ): Record<CapabilityKey, EffectiveCapability> {
   return {
     image: effectiveCapability('image', agent, host, composition),
+    embeddedContext: effectiveCapability('embeddedContext', agent, host, composition),
     loadSession: effectiveCapability('loadSession', agent, host, composition),
     list: effectiveCapability('list', agent, host, composition),
     resume: effectiveCapability('resume', agent, host, composition),

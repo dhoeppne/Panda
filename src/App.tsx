@@ -23,7 +23,7 @@ import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
 import { familyCommandSource, sessionCommandSource, type CommandSource } from './commands';
 import { notifyUser } from './userNotice';
-import type { AcpContentBlock } from './protocol/types';
+import type { AcpUserContentBlock } from './protocol/types';
 import { SettingsPage, SETTINGS_SECTIONS, type SettingsSectionId } from './components/SettingsPage';
 import { useLiveSession } from './useLiveSession';
 import { UserNoticeToasts } from './components/UserNoticeToasts';
@@ -105,7 +105,7 @@ function MainScreen() {
     activeConnectionId ? (s.connections[activeConnectionId]?.familyCommands ?? null) : null,
   );
 
-  const startChat = (content: AcpContentBlock[]) => {
+  const startChat = (content: AcpUserContentBlock[]) => {
     if (!newChatFamily || starting) return;
     setStarting(true);
     void (async () => {
@@ -115,7 +115,7 @@ function MainScreen() {
         // The composer cleared its draft on submit; give the text back so a
         // failed start loses nothing the user typed.
         const text = content
-          .filter((block): block is Extract<AcpContentBlock, { type: 'text' }> => block.type === 'text')
+          .filter((block): block is Extract<AcpUserContentBlock, { type: 'text' }> => block.type === 'text')
           .map((block) => block.text)
           .join('\n');
         useComposerDrafts.getState().setDraft(newChatDraftKey, { value: text });
@@ -214,7 +214,7 @@ function MainScreen() {
               inputLocked={starting}
               canQueue={false}
               hint={starting ? t('newChat.starting', { name: newChatFamily.name }) : t('newChat.placeholder', { name: newChatFamily.name })}
-              canAttachImages={undefined}
+              attachAccept={undefined}
               canStop={false}
               modes={null}
               onSetMode={() => {}}
@@ -287,7 +287,11 @@ function MainScreen() {
               hint={lifecycle.hint}
               // Undefined until the live link is up and capabilities are
               // negotiated (#214): no agent, no capability claims either way.
-              canAttachImages={connection.status === 'connected' ? effectiveCaps.image.available : undefined}
+              attachAccept={
+                connection.status === 'connected'
+                  ? { image: effectiveCaps.image.available, files: effectiveCaps.embeddedContext.available }
+                  : undefined
+              }
               canStop={lifecycle.canStop}
               onStop={live.cancel}
               modes={sessionModes.modes}

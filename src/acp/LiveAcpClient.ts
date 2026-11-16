@@ -22,7 +22,7 @@ import type {
   AcpAuthMethod,
   AcpAvailableCommand,
   AcpConfigOption,
-  AcpContentBlock,
+  AcpUserContentBlock,
   AcpSessionModeState,
   AcpSessionUpdate,
   ElicitationRequest,
@@ -296,6 +296,7 @@ function readCaps(caps: AgentCapabilities | null | undefined): AgentCaps {
   const rewind = caps?._meta?.[REWIND_CAPABILITY];
   return {
     image: caps?.promptCapabilities?.image === true,
+    embeddedContext: caps?.promptCapabilities?.embeddedContext === true,
     loadSession: caps?.loadSession === true,
     list: session?.list != null,
     resume: session?.resume != null,
@@ -375,6 +376,7 @@ export class LiveAcpClient {
   private sessionId: string | null = null;
   private capabilities: AgentCaps = {
     image: false,
+    embeddedContext: false,
     loadSession: false,
     list: false,
     resume: false,
@@ -1018,7 +1020,7 @@ export class LiveAcpClient {
   }
 
   /** Sends one ordered set of user content blocks and owns the turn until it resolves. */
-  async send(content: AcpContentBlock[]): Promise<void> {
+  async send(content: AcpUserContentBlock[]): Promise<void> {
     if (content.length === 0) return;
     if (!this.connection || !this.sessionId) {
       console.warn('[panda/acp] send ignored: not connected');
@@ -1041,6 +1043,16 @@ export class LiveAcpClient {
             ? t('acp.imagePolicyBlocked')
             : t('acp.imageNotDeclared');
       throw new Error(t('acp.imageRejected', { cause }));
+    }
+    const files = this.capability('embeddedContext');
+    if (!files.available && content.some((block) => block.type === 'resource')) {
+      const cause =
+        files.reason === 'unavailable-on-host'
+          ? t('acp.imageHostUnsupported')
+          : files.reason === 'blocked-by-policy'
+            ? t('acp.imagePolicyBlocked')
+            : t('acp.fileNotDeclared');
+      throw new Error(t('acp.fileRejected', { cause }));
     }
     const generation = this.connectionGeneration;
     // The reducer is the only path that opens a user turn — echo locally as

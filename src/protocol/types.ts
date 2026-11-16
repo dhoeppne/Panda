@@ -33,7 +33,32 @@ export type { SessionNotification };
 
 export type AcpContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'image'; data: string; mimeType: string };
+  | { type: 'image'; data: string; mimeType: string; uri?: string };
+
+/**
+ * A file Panda embeds in a prompt (`resource` with a base64 `blob`). It
+ * appears only in user content: the optimistic echo of what Panda sent.
+ */
+export type AcpResourceBlock = {
+  type: 'resource';
+  resource: { uri: string; mimeType?: string; blob: string };
+};
+
+/** A file the agent names by link (`resource_link`), e.g. a replayed attachment. */
+export type AcpResourceLinkBlock = {
+  type: 'resource_link';
+  uri: string;
+  name: string;
+  mimeType?: string;
+  size?: number;
+};
+
+/**
+ * The blocks of a user message: text, images and files. Agent-side content
+ * stays `AcpContentBlock` — files there are not rendered (they map to
+ * `unsupported`).
+ */
+export type AcpUserContentBlock = AcpContentBlock | AcpResourceBlock | AcpResourceLinkBlock;
 
 export type AcpToolKind =
   | 'read'
@@ -272,7 +297,7 @@ export type AcpToolCallContent =
 export type AcpSessionUpdate =
   | {
       sessionUpdate: 'user_message';
-      content: AcpContentBlock[];
+      content: AcpUserContentBlock[];
       /**
        * Protocol-side messageId from the chunk, when the agent sent one.
        * Two different ids are two different prompts — without it a
@@ -528,7 +553,7 @@ export type ToolCallState = {
 export type Block =
   | {
       kind: 'user_message';
-      content: AcpContentBlock[];
+      content: AcpUserContentBlock[];
       /** Set while the block is only a local optimistic echo, not protocol data. */
       optimistic?: true;
       /** Protocol-side messageId: carried by replayed chunks that have one,

@@ -83,6 +83,77 @@ describe('toAcpUpdates raw preservation', () => {
     warnSpy.mockRestore();
   });
 
+  it('maps the files of a user message: resource_link and blob resource', () => {
+    const link = note({
+      sessionUpdate: 'user_message_chunk',
+      content: {
+        type: 'resource_link',
+        uri: 'attachment:lease.pdf',
+        name: 'lease.pdf',
+        mimeType: 'application/pdf',
+        size: 1200,
+      },
+    });
+    expect(toAcpUpdates(link)).toEqual([
+      {
+        sessionUpdate: 'user_message',
+        content: [
+          { type: 'resource_link', uri: 'attachment:lease.pdf', name: 'lease.pdf', mimeType: 'application/pdf', size: 1200 },
+        ],
+        raw: link,
+      },
+    ]);
+
+    const bare = note({
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'resource_link', uri: 'attachment:x', name: 'x', mimeType: null, size: null },
+    });
+    expect(toAcpUpdates(bare)[0]).toMatchObject({
+      content: [{ type: 'resource_link', uri: 'attachment:x', name: 'x' }],
+    });
+    expect((toAcpUpdates(bare)[0] as { content: object[] }).content[0]).not.toHaveProperty('mimeType');
+
+    const blob = note({
+      sessionUpdate: 'user_message_chunk',
+      content: {
+        type: 'resource',
+        resource: { uri: 'attachment:door.ts', mimeType: 'text/x-typescript', blob: 'dHM=' },
+      },
+    });
+    expect(toAcpUpdates(blob)).toEqual([
+      {
+        sessionUpdate: 'user_message',
+        content: [
+          { type: 'resource', resource: { uri: 'attachment:door.ts', mimeType: 'text/x-typescript', blob: 'dHM=' } },
+        ],
+        raw: blob,
+      },
+    ]);
+
+    const image = note({
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'image', data: 'aGk=', mimeType: 'image/png', uri: 'attachment:shot.png' },
+    });
+    expect(toAcpUpdates(image)[0]).toMatchObject({
+      content: [{ type: 'image', data: 'aGk=', mimeType: 'image/png', uri: 'attachment:shot.png' }],
+    });
+  });
+
+  it('keeps files unsupported outside a user message, and a text resource everywhere', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const agentLink = note({
+      sessionUpdate: 'agent_message_chunk',
+      content: { type: 'resource_link', uri: 'file:///x', name: 'x' },
+    });
+    expect(toAcpUpdates(agentLink)).toEqual([{ sessionUpdate: 'unsupported', raw: agentLink }]);
+    const userText = note({
+      sessionUpdate: 'user_message_chunk',
+      content: { type: 'resource', resource: { uri: 'file:///x.txt', text: 'x' } },
+    });
+    expect(toAcpUpdates(userText)).toEqual([{ sessionUpdate: 'unsupported', raw: userText }]);
+    warnSpy.mockRestore();
+  });
+
   it('maps unsupported tool content (terminal) to an explicit unsupported entry', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const n = note({

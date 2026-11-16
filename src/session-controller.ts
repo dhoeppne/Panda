@@ -1,4 +1,4 @@
-import type { AcpContentBlock, ElicitationResponse, PermissionOptionKind } from './protocol/types';
+import type { AcpUserContentBlock, ElicitationResponse, PermissionOptionKind } from './protocol/types';
 
 /**
  * The session-level operations the foreground session admits (#51). The
@@ -9,7 +9,7 @@ import type { AcpContentBlock, ElicitationResponse, PermissionOptionKind } from 
 export interface ForegroundSessionController {
   /** Send one user turn's content blocks. The live driver resolves when the
    * turn ends and rejects when the content is refused before it starts. */
-  send: (content: AcpContentBlock[]) => void | Promise<void>;
+  send: (content: AcpUserContentBlock[]) => void | Promise<void>;
   /** Answer a pending permission request for a tool call. */
   resolvePermission: (toolCallId: string, kind: PermissionOptionKind) => void;
   /** Answer the pending elicitation. */

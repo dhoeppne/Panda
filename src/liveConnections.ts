@@ -6,7 +6,7 @@ import type {
   AcpAuthMethod,
   AcpAvailableCommand,
   AcpConfigOption,
-  AcpContentBlock,
+  AcpUserContentBlock,
   AcpSessionModeState,
   AcpSessionUpdate,
   ElicitationRequest,
@@ -478,6 +478,7 @@ function wireHandlers(entry: LiveConnection) {
     },
     onCapabilities: (caps: {
       image: boolean;
+      embeddedContext: boolean;
       loadSession: boolean;
       list: boolean;
       resume: boolean;
@@ -486,6 +487,7 @@ function wireHandlers(entry: LiveConnection) {
     }) =>
       port.setCapabilities({
         image: caps.image,
+        embeddedContext: caps.embeddedContext,
         loadSession: caps.loadSession,
         list: caps.list,
         resume: caps.resume,
@@ -1045,7 +1047,7 @@ export function seedProfileSlots(profiles: AgentProfile[], storage: SessionStora
     const entry = ensureEntry(profile.id);
     restoreEndpointSessions(endpoint, entry.port.replaceSessions, storage);
     entry.port.resetDocument();
-    entry.port.setCapabilities({ image: false, loadSession: false, list: false, resume: false, delete: false, rewind: false });
+    entry.port.setCapabilities({ image: false, embeddedContext: false, loadSession: false, list: false, resume: false, delete: false, rewind: false });
     entry.port.setConnection({
       status: 'disconnected',
       url: endpoint,
@@ -1179,7 +1181,7 @@ export async function rewindLive(messageId: string, text: string): Promise<void>
   useComposerDrafts.getState().setDraft(composerDraftKey(entry.connectionId, sessionId), { value: text });
 }
 
-export async function sendLive(content: AcpContentBlock[]): Promise<void> {
+export async function sendLive(content: AcpUserContentBlock[]): Promise<void> {
   const entry = foregroundEntry('send');
   if (entry) await entry.client.send(content);
 }

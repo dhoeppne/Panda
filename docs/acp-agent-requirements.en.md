@@ -78,7 +78,9 @@ After the handshake, a plain connection only fetches `session/list`; it does not
 
 ### 2.3 `session/prompt` — the turn loop
 
-- Request: `{ sessionId, prompt: ContentBlock[] }`. Content blocks can only be `text` and `image`, and `image` appears only after `promptCapabilities.image: true` is declared (otherwise the client rejects images locally — they never reach the wire).
+- Request: `{ sessionId, prompt: ContentBlock[] }`. Content blocks can only be `text`, `image` and `resource`: `image` appears only after `promptCapabilities.image: true` is declared, and `resource` only after `promptCapabilities.embeddedContext: true` is declared (otherwise the client rejects them locally — they never reach the wire).
+- Attachment order is fixed: files first, then the trimmed text. An image is `{ type: "image", data, mimeType, uri }`; any other file is `{ type: "resource", resource: { uri, mimeType, blob } }` (`blob` is base64; a text file is its UTF-8 bytes too). The `uri` is `attachment:` plus the file name; the name has no `/`, NUL or control character, is at most 255 UTF-8 bytes, and is never `.` or `..`.
+- Client-side limits (equal to the la-creche attachments design): at most 4 files per message, each at most 8 MiB, at most 10 MiB in all; kinds are images (png/jpeg/gif/webp), PDF, text and code only. A file over a limit stays in the composer in red and is not sent.
 - **The RPC stays pending for the whole turn**: stream `session/update` notifications while working, respond `{ stopReason }` only when the turn ends.
 - `stopReason` enum: `end_turn` / `max_tokens` / `max_turn_requests` / `refusal` / `cancelled`. Everything except `end_turn` surfaces as a user-visible turn-ending notice.
 - The response's `usage` (UNSTABLE) is ignored by the client — report context occupancy via `usage_update` notifications (the `used`/`size` pair, not a cumulative tally).
@@ -132,7 +134,7 @@ The complete set of client-side handlers Panda registers:
 
 | Handling | Kinds |
 | --- | --- |
-| Rendered in flow | `user_message_chunk` (text/image), `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`, `plan`, `plan_update`*, `plan_removed`, `compaction_update`, `compaction_summary_chunk`, `usage_update`, `current_mode_update`, `available_commands_update`, `config_option_update` |
+| Rendered in flow | `user_message_chunk` (text/image/resource_link/blob resource), `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`, `plan`, `plan_update`*, `plan_removed`, `compaction_update`, `compaction_summary_chunk`, `usage_update`, `current_mode_update`, `available_commands_update`, `config_option_update` |
 | Session-level latest kept | `session_info_update` (`title` / `updatedAt`, drives the sidebar) |
 | Unknown kinds | warned + preserved as unsupported events (forward-compatible) |
 
@@ -140,7 +142,8 @@ The complete set of client-side handlers Panda registers:
 
 ### 4.2 Content-block and tool-content boundaries
 
-- Content blocks: `text` / `image` render; `audio` / `resource` etc. degrade to unsupported.
+- Content blocks: `text` / `image` render; `audio` / `resource` etc. degrade to unsupported. Exception: in `user_message_chunk`, `resource_link` and a `resource` with `blob` render as file chips (no download); a `resource` with `text` still degrades. On replay, a `resource_link` and an `image` for the same image (same `uri`) render as the image only.
+- Echo reconciliation: for a message with files, the echo may change shape — the text first, then one `resource_link` per file, then the images (image bytes may be rebuilt). The client matches on the text and the set of `uri`s, never on image bytes, and confirms when the echo window closes (a non-echo update or turn end). An echo that names a `uri` the client did not send (e.g. a `-1` rename) renders as a separate message.
 - Tool content: `diff` and `content` (containing text/image) render; `terminal` and other kinds render as unsupported rows.
 - A `tool_call`'s `rawInput` / `rawOutput` must be JSON objects; non-objects are dropped with a warning.
 - **Every tool card MUST reach a terminal state**: `tool_call_update` pushes status to `completed` / `failed` / `cancelled`. Miss it and the card stays "running" forever (the real bug fixed in #75; the e2e suite now pins a terminal state for every card).
@@ -156,7 +159,7 @@ None of these are entry requirements, but each omission has a clear user-visible
 | 3 | In-turn visibility | `agent_thought_chunk`; `tool_call`/`tool_call_update` (with terminal states) | execution is a black box; long turns look hung | 1 |
 | 4 | Cancellation | `session/cancel` (§2.5) | a runaway turn can only be waited out or the connection dropped | 1 |
 | 5 | Session metadata | `session_info_update` (`title` / `updatedAt`) | sidebar full of untitled sessions; stale relative times | 2 |
-| 6 | Image input | `promptCapabilities.image: true` | images can never be sent from the UI | 2 |
+| 6 | Image and file input | `promptCapabilities.image: true`; `promptCapabilities.embeddedContext: true` | images or files can never be sent from the UI | 2 |
 | 7 | Session config | `configOptions` + `session/set_config_option` + `config_option_update` | model/toggles can't be changed in-app | 2 |
 | 8 | Context gauge | `usage_update` | compaction/truncation ambushes the user | 2 |
 | 9 | Session deletion | `sessionCapabilities.delete` + `session/delete` | session list only ever grows | 2 |
@@ -182,7 +185,7 @@ None of these are entry requirements, but each omission has a clear user-visible
 
 **Session metadata.** Deriving the title deterministically from the first user message costs zero extra model calls (reference: `test-agent/src/sessionTitles.ts`); pushing `updatedAt` per turn keeps the sidebar's relative times alive.
 
-**Image input.** A multimodal-capable model left undeclared means images can never be sent from the UI (the client rejects locally).
+**Image and file input.** A multimodal-capable model without `image` means images can never be sent from the UI; without `embeddedContext`, PDF, text and code files cannot be sent either (the client rejects locally, and the attach button is disabled with "This agent does not take files"). The two are independent.
 
 **Session config.** Select writes carry no `type`; boolean writes carry an explicit `type: "boolean"`. The response should carry the **full** updated `configOptions` (changing one may affect others), followed by a `config_option_update` notification — the confirm-driven RPC plus idempotent notification is the normal dual path, pinned by e2e.
 

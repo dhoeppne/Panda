@@ -104,9 +104,10 @@ export const messages = {
   },
   'composer.skillsKeys': { en: '↑↓ select · Enter or Tab insert · Esc close', zh: '↑↓ 选择 · Enter 或 Tab 插入 · Esc 关闭' },
   'composer.removeAttachment': { en: 'Remove {name}', zh: '移除 {name}' },
-  'composer.attach': { en: 'Add image', zh: '添加图片' },
-  'composer.attachUnavailable': { en: 'This agent does not declare image input', zh: '当前 agent 未声明图片输入能力' },
-  'composer.attachDisabled': { en: 'Cannot add images right now', zh: '当前不可添加图片' },
+  'composer.attach': { en: 'Attach files', zh: '添加文件' },
+  'composer.attachUnavailable': { en: 'This agent does not take files', zh: '当前 agent 不接收文件' },
+  'composer.attachDisabled': { en: 'Cannot attach files right now', zh: '当前不可添加文件' },
+  'composer.dropFiles': { en: 'Drop files to attach', zh: '拖放文件以添加' },
   'composer.settings': { en: 'Session settings', zh: '会话设置' },
   'composer.settingsDisabled': { en: 'Cannot change settings right now', zh: '当前不可调整设置' },
   'composer.stop': { en: 'Stop', zh: '停止' },
@@ -124,18 +125,35 @@ export const messages = {
   },
   'composer.queueResume': { en: 'Resume queue', zh: '继续发送' },
   'composer.queueRemove': { en: 'Remove queued message: {preview}', zh: '移除排队消息:{preview}' },
-  'composer.queuedImages': { en: '{count} image(s)', zh: '{count} 张图片' },
-  'composer.readImageFailed': { en: 'Failed to read image: {message}', zh: '读取图片失败:{message}' },
-  'composer.hintImages': {
-    en: 'Enter to send, Shift+Enter for a new line · paste or pick images',
-    zh: 'Enter 发送,Shift+Enter 换行 · 可粘贴或选择图片',
+  'composer.queuedFiles': { en: '{count} file(s)', zh: '{count} 个文件' },
+  'composer.readFileFailed': { en: 'Failed to read file: {message}', zh: '读取文件失败:{message}' },
+  'composer.hintAll': {
+    en: 'Images, PDF, text and code · up to {files} files, {fileMb} MB each, {messageMb} MB in all',
+    zh: '图片、PDF、文本和代码 · 最多 {files} 个文件,每个 {fileMb} MB,合计 {messageMb} MB',
+  },
+  'composer.hintImagesOnly': {
+    en: 'Images · up to {files} files, {fileMb} MB each, {messageMb} MB in all',
+    zh: '图片 · 最多 {files} 个文件,每个 {fileMb} MB,合计 {messageMb} MB',
+  },
+  'composer.hintFilesOnly': {
+    en: 'PDF, text and code · up to {files} files, {fileMb} MB each, {messageMb} MB in all',
+    zh: 'PDF、文本和代码 · 最多 {files} 个文件,每个 {fileMb} MB,合计 {messageMb} MB',
+  },
+  'composer.refusedHint': {
+    en: 'Red files stay visible but are not sent. Remove them or send the rest.',
+    zh: '红色文件保留显示但不会发送。移除它们,或发送其余文件。',
   },
 
   // ---- attachments ----
-  'attach.oversize': { en: '>5MB, will not be sent', zh: '>5MB,不会发送' },
-  'attach.tooMany': { en: 'Up to {n} images, will not be sent', zh: '最多 {n} 张,不会发送' },
-  'attach.notImage': { en: 'Not an image file: {name}', zh: '不是图片文件: {name}' },
+  'attach.notAllowed': { en: 'Kind not allowed', zh: '类型不允许' },
+  'attach.fileTooLarge': { en: 'Over 8 MB', zh: '超过 8 MB' },
+  'attach.messageTooLarge': { en: 'Over 10 MB in all', zh: '合计超过 10 MB' },
+  'attach.tooMany': { en: 'Up to {n} files', zh: '最多 {n} 个文件' },
   'attach.pastedName': { en: 'Pasted image', zh: '粘贴的图片' },
+  'attach.kindImage': { en: 'Image', zh: '图片' },
+  'attach.kindText': { en: 'Text', zh: '文本' },
+  'attach.kindCode': { en: 'Code', zh: '代码' },
+  'attach.kindFile': { en: 'File', zh: '文件' },
 
   // ---- MessageStream ----
   'stream.compacting': { en: 'Compacting context…', zh: '正在压缩上下文…' },
@@ -692,6 +710,11 @@ export const messages = {
     zh: 'agent 未声明 promptCapabilities.image',
   },
   'acp.imageRejected': { en: '{cause} — refusing to send images', zh: '{cause},拒绝发送图片' },
+  'acp.fileNotDeclared': {
+    en: 'the agent did not declare promptCapabilities.embeddedContext',
+    zh: 'agent 未声明 promptCapabilities.embeddedContext',
+  },
+  'acp.fileRejected': { en: '{cause} — refusing to send files', zh: '{cause},拒绝发送文件' },
   'acp.superseded': { en: 'The connection was replaced by a newer one', zh: '连接已被更新的连接替换' },
 
   // ---- wire ----

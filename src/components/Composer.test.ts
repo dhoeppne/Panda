@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { imageHintState, isImeComposition, queuedPreview, submitAction } from './Composer';
+import { attachHintState, isImeComposition, queuedPreview, submitAction } from './Composer';
 
 describe('isImeComposition (bug hunt #2: IME Enter must not submit)', () => {
   it('flags the live composition marker', () => {
@@ -17,17 +17,19 @@ describe('isImeComposition (bug hunt #2: IME Enter must not submit)', () => {
   });
 });
 
-describe('imageHintState (#214: no agent, no capability claims)', () => {
+describe('attachHintState (#214: no agent, no capability claims)', () => {
   it('renders no hint while no agent is connected or connecting', () => {
-    expect(imageHintState(undefined)).toBeNull();
+    expect(attachHintState(undefined)).toBeNull();
   });
 
-  it('names a negotiated agent that lacks image input', () => {
-    expect(imageHintState(false)).toBe('unavailable');
+  it('names a negotiated agent that takes no files', () => {
+    expect(attachHintState({ image: false, files: false })).toBe('unavailable');
   });
 
-  it('shows the paste-or-attach hint once image input is negotiated', () => {
-    expect(imageHintState(true)).toBe('available');
+  it('names the kinds a negotiated agent takes', () => {
+    expect(attachHintState({ image: true, files: true })).toBe('all');
+    expect(attachHintState({ image: true, files: false })).toBe('images');
+    expect(attachHintState({ image: false, files: true })).toBe('files');
   });
 });
 
@@ -48,7 +50,7 @@ describe('submitAction (queue messages mid-turn)', () => {
 });
 
 describe('queuedPreview', () => {
-  const images = (count: number) => `${count} image(s)`;
+  const images = (count: number) => `${count} file(s)`;
 
   it('flattens text blocks into one line', () => {
     expect(
@@ -56,11 +58,15 @@ describe('queuedPreview', () => {
     ).toBe('first second line');
   });
 
-  it('adds an image count, alone or after the text', () => {
+  it('adds a file count (images included), alone or after the text', () => {
     const image = { type: 'image' as const, data: 'AAAA', mimeType: 'image/png' };
-    expect(queuedPreview({ id: 'q', content: [image, image] }, images)).toBe('2 image(s)');
-    expect(queuedPreview({ id: 'q', content: [{ type: 'text', text: 'look' }, image] }, images)).toBe(
-      'look · 1 image(s)',
+    const pdf = {
+      type: 'resource' as const,
+      resource: { uri: 'attachment:a.pdf', mimeType: 'application/pdf', blob: 'AAAA' },
+    };
+    expect(queuedPreview({ id: 'q', content: [image, image] }, images)).toBe('2 file(s)');
+    expect(queuedPreview({ id: 'q', content: [image, pdf, { type: 'text', text: 'look' }] }, images)).toBe(
+      'look · 2 file(s)',
     );
   });
 });

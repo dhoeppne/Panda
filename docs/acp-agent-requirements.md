@@ -78,7 +78,9 @@ Panda 建连后的第一个请求,固定为:
 
 ### 2.3 `session/prompt` —— 回合主循环
 
-- 请求:`{ sessionId, prompt: ContentBlock[] }`。内容块只可能是 `text` 与 `image`,且 `image` 仅在声明 `promptCapabilities.image: true` 后才会出现(未声明时客户端在本地就拒绝图片,不会到线上)。
+- 请求:`{ sessionId, prompt: ContentBlock[] }`。内容块只可能是 `text`、`image` 与 `resource`:`image` 仅在声明 `promptCapabilities.image: true` 后才会出现,`resource` 仅在声明 `promptCapabilities.embeddedContext: true` 后才会出现(未声明时客户端在本地就拒绝,不会到线上)。
+- 附件顺序固定:先文件,后去掉首尾空白的文本。图片为 `{ type: "image", data, mimeType, uri }`;其余文件为 `{ type: "resource", resource: { uri, mimeType, blob } }`(`blob` 为 base64,文本文件也是其 UTF-8 字节)。`uri` 为 `attachment:` 加文件名;文件名不含 `/`、NUL 与控制字符,不超过 255 个 UTF-8 字节,且不是 `.` 或 `..`。
+- 客户端本地限额(与 la-creche 附件设计一致):每条消息最多 4 个文件,每个文件不超过 8 MiB,合计不超过 10 MiB;种类只限图片(png/jpeg/gif/webp)、PDF、文本与代码。超限文件留在输入框里标红,不会发送。
 - **整个回合期间 RPC 保持 pending**:边执行边推 `session/update` 通知,结束时才响应 `{ stopReason }`。
 - `stopReason` 枚举:`end_turn` / `max_tokens` / `max_turn_requests` / `refusal` / `cancelled`。除 `end_turn` 外,每一个都会作为用户可见的回合结束提示呈现。
 - 响应中的 `usage`(UNSTABLE)被客户端忽略——上下文占用请走 `usage_update` 通知(`used`/`size` 对,不是累计量)。
@@ -132,7 +134,7 @@ Panda 注册的 client 侧 handler 全集:
 
 | 处理方式 | 种类 |
 | --- | --- |
-| 流内渲染 | `user_message_chunk`(text/image)、`agent_message_chunk`、`agent_thought_chunk`、`tool_call`、`tool_call_update`、`plan`、`plan_update`*、`plan_removed`、`compaction_update`、`compaction_summary_chunk`、`usage_update`、`current_mode_update`、`available_commands_update`、`config_option_update` |
+| 流内渲染 | `user_message_chunk`(text/image/resource_link/blob resource)、`agent_message_chunk`、`agent_thought_chunk`、`tool_call`、`tool_call_update`、`plan`、`plan_update`*、`plan_removed`、`compaction_update`、`compaction_summary_chunk`、`usage_update`、`current_mode_update`、`available_commands_update`、`config_option_update` |
 | 会话级 latest 保留 | `session_info_update`(`title` / `updatedAt`,驱动侧栏) |
 | 未知种类 | warn + 以 unsupported 事件保留(向前兼容) |
 
@@ -140,7 +142,8 @@ Panda 注册的 client 侧 handler 全集:
 
 ### 4.2 内容块与工具内容的边界
 
-- 内容块:`text` / `image` 渲染;`audio` / `resource` 等降级为 unsupported。
+- 内容块:`text` / `image` 渲染;`audio` / `resource` 等降级为 unsupported。例外:`user_message_chunk` 里的 `resource_link` 与带 `blob` 的 `resource` 渲染为文件卡片(无下载);带 `text` 的 `resource` 仍降级。回放时同一图片的 `resource_link` 与 `image`(同一 `uri`)只渲染图片。
+- 回显对账:带文件的消息,回显可以换形状——先文本,再每个文件一条 `resource_link`,再图片(图片字节可被重建)。客户端按文本与 `uri` 集合对账,不比较图片字节;回显窗口关闭时(非回显更新或回合结束)才确认。回显里出现客户端没发过的 `uri`(例如改名去重后的 `-1`),则按不同消息另行渲染。
 - 工具内容:`diff` 与 `content`(内含 text/image)渲染;`terminal` 等其余种类渲染为 unsupported 行。
 - `tool_call` 的 `rawInput` / `rawOutput` 必须是 JSON 对象,非对象会被丢弃并 warn。
 - **工具卡必须推到终态**:`tool_call_update` 把 status 推到 `completed` / `failed` / `cancelled`。漏发终态,卡片永久停在「运行中」(#75 修过的真实坑,e2e 已钉死每卡必有终态)。
@@ -156,7 +159,7 @@ Panda 注册的 client 侧 handler 全集:
 | 3 | 回合可见性 | `agent_thought_chunk`;`tool_call`/`tool_call_update`(含终态) | 执行期黑箱,长回合像卡死 | 一 |
 | 4 | 取消 | `session/cancel`(§2.5) | 跑飞的回合只能等它跑完或断线 | 一 |
 | 5 | 会话元信息 | `session_info_update`(`title` / `updatedAt`) | 侧栏全是无题会话,相对时间是死的 | 二 |
-| 6 | 图片输入 | `promptCapabilities.image: true` | UI 里永远发不了图 | 二 |
+| 6 | 图片与文件输入 | `promptCapabilities.image: true`;`promptCapabilities.embeddedContext: true` | UI 里永远发不了图或文件 | 二 |
 | 7 | 会话配置 | `configOptions` + `session/set_config_option` + `config_option_update` | 应用内改不了模型/开关 | 二 |
 | 8 | 上下文水位 | `usage_update` | 压缩/截断对用户是突袭 | 二 |
 | 9 | 会话删除 | `sessionCapabilities.delete` + `session/delete` | 会话列表只增不减 | 二 |
@@ -182,7 +185,7 @@ Panda 注册的 client 侧 handler 全集:
 
 **会话元信息。** 首条用户消息确定性生成标题是零额外模型成本的好做法(参考实现:`test-agent/src/sessionTitles.ts`);`updatedAt` 随回合推送,侧栏相对时间才是活的。
 
-**图片输入。** 模型侧支持多模态却不声明,用户在 UI 里永远发不了图(客户端本地直接拒绝)。
+**图片与文件输入。** 模型侧支持多模态却不声明 `image`,用户在 UI 里永远发不了图;不声明 `embeddedContext`,PDF、文本与代码文件同样发不出去(客户端本地直接拒绝,附件按钮禁用并提示「当前 agent 不接收文件」)。两项互相独立。
 
 **会话配置。** select 写不带 `type`;boolean 写显式带 `type: "boolean"`;响应应携带**全量**更新后的 `configOptions`(改一项可能影响其他项),并补发 `config_option_update` 通知——确认驱动 + 通知幂等的双路径是常态,e2e 钉过。
 

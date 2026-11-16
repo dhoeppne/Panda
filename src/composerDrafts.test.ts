@@ -4,9 +4,9 @@ import {
   useComposerDrafts,
   type ComposerDraft,
 } from './composerDrafts';
-import type { ImageAttachment } from './attachments';
+import type { FileAttachment } from './attachments';
 
-const image = (id: string): ImageAttachment => ({
+const image = (id: string): FileAttachment => ({
   id,
   name: `${id}.png`,
   mimeType: 'image/png',
