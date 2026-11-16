@@ -2,8 +2,9 @@
    the settings button's anchor wrapper, so it opens upward hugging the
    button (like the mode picker's menu), not from the card's far corner.
    The viewport bounds the width cap so the card itself never gets wider
-   than the window (same narrow-window caveat as the mode menu: the anchor
-   offset can still push the right edge past a very narrow viewport). */
+   than the window. At phone width the composer anchors the card to its own
+   card instead (Composer.css), so the anchor offset cannot push the right
+   edge past the viewport. */
 .config-panel-card {
   position: absolute;
   left: 0;
