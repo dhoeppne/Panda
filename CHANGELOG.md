@@ -15,6 +15,13 @@ follow the releases published from this repository.
   A turn that ends with a stop reason other than `end_turn` (Stop, refusal,
   limits) pauses the queue until Resume. Queued messages are not echoed
   into the stream until they are sent, and live in memory only.
+- **Tool calls fold into one row** — two or more tool calls in a row,
+  inside one turn, collapse into a single `N tool calls · <title>` row. The
+  title follows the running call, or the last call once the run settles.
+  The row starts closed, also while calls run; a click opens the ordinary
+  cards. A call waiting for approval and a failed call stay outside, right
+  below the row. A thought, a message or a new turn ends the run. History
+  loaded by `session/load` folds the same way as a live turn.
 
 ### Removed
 
