@@ -123,15 +123,6 @@ const SESSION_ACTIVITY_KINDS: ReadonlySet<AcpSessionUpdate['sessionUpdate']> = n
  */
 export type AgentCapabilityInfo = AgentCapabilityDeclarations;
 
-export type SessionMode = 'demo' | 'live';
-
-/**
- * The demo replay's pseudo-connection slot (issue #21): defined here so the
- * sidebar's ordering selector can exclude it without importing the driver —
- * the replay slot is not an agent connection and never renders as a group.
- */
-export const DEMO_CONNECTION_ID = 'demo';
-
 /** Everything one agent connection owns. Documents are keyed by sessionId. */
 export type ConnectionState = {
   connection: ConnectionInfo;
@@ -204,7 +195,6 @@ export type SessionUpsert = {
 };
 
 interface PandaState {
-  mode: SessionMode;
   connections: Record<string, ConnectionState>;
   activeConnectionId: string | null;
   /** The session whose document the UI renders; drivers move this pointer. */
@@ -217,7 +207,6 @@ interface PandaState {
    * (latest-wins).
    */
   selectionGeneration: number;
-  setMode(mode: SessionMode): void;
   /**
    * Creates the slot if missing (existing documents survive — reconnects keep
    * their transcript) and makes it the active connection.
@@ -321,15 +310,10 @@ function patchConnectionState(
 }
 
 export const usePanda = create<PandaState>((set) => ({
-  // Live by default (IA refactor phase 2): the demo replay is a hash-driven
-  // display mode (#/demo, production-reachable since #196/#197) — the app
-  // opens on the real session screen, never on a scripted one.
-  mode: 'live',
   connections: {},
   activeConnectionId: null,
   activeSessionId: null,
   selectionGeneration: 0,
-  setMode: (mode) => set({ mode }),
   ensureConnection: (connectionId) =>
     set((s) => ({
       connections: s.connections[connectionId]
@@ -388,7 +372,7 @@ export const usePanda = create<PandaState>((set) => ({
 // ---------------------------------------------------------------------------
 
 /**
- * The write surface one session driver (live client or replay) may touch.
+ * The write surface the session driver (the live client) may touch.
  * Everything is scoped to its own connection slot and the session it last
  * adopted, so driver handlers never write global fields directly (issue #16
  * acceptance 3). In single-connection mode the adopting connection is always
@@ -458,8 +442,7 @@ export type ConnectionStorePort = {
  * The single write channel for the UI session pointer (#59): `activeSessionId`
  * mirrors the foreground connection's anchor (`connection.sessionId`) — it
  * never moves on its own. Sanctioned divergences are explicit at their call
- * sites: demo replay (the session is intentionally unanchored, pointer stays
- * 'demo') and retained-document viewing (an explicit sessionId on
+ * site: retained-document viewing (an explicit sessionId on
  * setActiveConnection). Every move of an anchor or the foreground must route
  * through these helpers so the two pointers cannot drift.
  */
@@ -878,7 +861,7 @@ export const useActiveSwitching = () => usePanda((s) => activeConnectionState(s)
 
 /**
  * Sidebar group order (issue #21): by most recent turn activity, never-active
- * slots last; the demo replay pseudo-slot is not a group. Stable by id so ties
+ * slots last. Stable by id so ties
  * don't reshuffle. The foreground pin was removed (#175): pinning whatever
  * you switch to made every switch jump two rows (the target to the top, the
  * one you left back down) — order now tracks only activity, and the current
@@ -887,16 +870,14 @@ export const useActiveSwitching = () => usePanda((s) => activeConnectionState(s)
 export function orderedConnectionIds(s: {
   connections: Record<string, ConnectionState>;
 }): string[] {
-  return Object.keys(s.connections)
-    .filter((id) => id !== DEMO_CONNECTION_ID)
-    .sort((a, b) => {
-      const at = s.connections[a]?.lastActivityAt ?? null;
-      const bt = s.connections[b]?.lastActivityAt ?? null;
-      if (at !== null && bt === null) return -1;
-      if (at === null && bt !== null) return 1;
-      if (at !== null && bt !== null && at !== bt) return bt - at;
-      return a.localeCompare(b);
-    });
+  return Object.keys(s.connections).sort((a, b) => {
+    const at = s.connections[a]?.lastActivityAt ?? null;
+    const bt = s.connections[b]?.lastActivityAt ?? null;
+    if (at !== null && bt === null) return -1;
+    if (at === null && bt !== null) return 1;
+    if (at !== null && bt !== null && at !== bt) return bt - at;
+    return a.localeCompare(b);
+  });
 }
 
 /**

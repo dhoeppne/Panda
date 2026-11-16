@@ -135,8 +135,8 @@ export function drainDecision(input: DrainInput): DrainDecision {
  * Sends the foreground session's queued messages, one per finished turn.
  * `busy` is the document's turn status (not idle); `canSendNow` is the
  * composer's send gate. A dispatched message stays "pending" until the
- * document reports its turn as busy — the demo driver flips the status a
- * few hundred ms after play(), and the gate must not send twice meanwhile.
+ * document reports its turn as busy — the status flips asynchronously
+ * after the send, and the gate must not send twice meanwhile.
  */
 export function useMessageQueueDrain({
   sessionKey,

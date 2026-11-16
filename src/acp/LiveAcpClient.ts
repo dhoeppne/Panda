@@ -52,9 +52,8 @@ import { notifyUser } from '../userNotice';
  * caller-injected, so nothing in this class knows whether the wire is a
  * browser WebSocket, stdio or anything else.
  *
- * Feeds the same handlers the replay driver feeds (update / status /
- * permission) plus connection and session bookkeeping, so the store wiring
- * stays symmetrical between the two drivers.
+ * Feeds the store through handlers (update / status / permission) plus
+ * connection and session bookkeeping.
  *
  * v1 semantics are synthesized here: `session/prompt` stays pending for the
  * whole turn, so the client itself drives running → requires_action → idle.

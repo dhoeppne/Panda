@@ -718,7 +718,6 @@ async function connectLiveConnectionInternal(
     ? usePanda.getState().connections[connectionId]?.connection.sessionId ?? null
     : null;
   if (!resumeSessionId) entry.port.detachSession();
-  usePanda.getState().setMode('live');
   entry.port.setConnection({
     status: 'connecting',
     url: endpoint,
@@ -1002,15 +1001,13 @@ export function removeLiveConnection(connectionId: string): void {
 
 /**
  * Foregrounds a connection: the UI pointers move to it (and its settled
- * session) and the unread signal clears. Foregrounding a live connection IS
- * leaving demo mode — the user asked to see this connection's content.
+ * session) and the unread signal clears.
  */
 export function foregroundConnection(connectionId: string): void {
   if (!liveConnections.has(connectionId) && !usePanda.getState().connections[connectionId]) {
     console.warn(`[panda/acp] foreground ignored: unknown connection "${connectionId}"`);
     return;
   }
-  usePanda.getState().setMode('live');
   usePanda.getState().setActiveConnection(connectionId);
 }
 
@@ -1088,7 +1085,6 @@ export function openLiveSession(connectionId: string, sessionId: string, cwd: st
   }
   if (!connected) {
     // Retained documents render read-only; the UI session moves explicitly.
-    usePanda.getState().setMode('live');
     usePanda.getState().setActiveConnection(connectionId, sessionId);
     return;
   }

@@ -2204,7 +2204,6 @@ describe('LiveAcpClient × connectionStorePort', () => {
 
   beforeEach(() => {
     usePanda.setState({
-      mode: 'demo',
       connections: {},
       activeConnectionId: null,
       activeSessionId: null,

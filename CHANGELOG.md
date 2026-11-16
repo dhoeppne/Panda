@@ -16,6 +16,14 @@ follow the releases published from this repository.
   limits) pauses the queue until Resume. Queued messages are not echoed
   into the stream until they are sent, and live in memory only.
 
+### Removed
+
+- **Scripted demo** — the `#/demo` route, its `?demo=long` scenario, the
+  scripted replay driver and fixtures, the onboarding "Watch a demo"
+  button, the sidebar demo banner, and the dev-only settings row are gone.
+  An old `#/demo` link now opens the session screen. The store no longer
+  has a demo/live mode: every view renders live connections.
+
 ### Fixed
 
 - **External links open in a new tab, and leave an iOS Home Screen web app**

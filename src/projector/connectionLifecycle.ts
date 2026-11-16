@@ -11,7 +11,7 @@
 
 import type { SessionStatus } from '../protocol/types';
 import { t } from '../i18n';
-import type { ConnectionInfo, ConnectionState, ConnectionStatus, SessionMode } from '../store';
+import type { ConnectionInfo, ConnectionState, ConnectionStatus } from '../store';
 
 /** 需要关注 sources (CONTEXT.md): reasons ride along instead of being
  * folded away — the tooltip can say which one fired. `auth-required` keeps
@@ -96,7 +96,6 @@ export function connectionLifecycle(slot: ConnectionState): ConnectionLifecycle 
 
 /** The fact slices the foreground projection is derived from. */
 export type ForegroundLifecycleInput = {
-  mode: SessionMode;
   docStatus: SessionStatus;
   connection: Pick<ConnectionInfo, 'status' | 'error'>;
   hasSession: boolean;
@@ -143,17 +142,14 @@ export type MainView = 'auth-gate' | 'onboarding' | 'message-stream';
  * Onboarding shows only when the foreground has NO session document to show —
  * decided by the UI pointer (`activeSessionId`), never the connection's
  * settled anchor (#218): a clean disconnect nulls the anchor while the
- * retained document stays viewable read-only. The demo replay owns the stream
- * unconditionally (no auth, no onboarding).
+ * retained document stays viewable read-only.
  */
 export function mainView(input: {
-  mode: SessionMode;
   phase: ConnectionPhase;
   authElicitation: ConnectionInfo['authElicitation'];
   activeSessionId: string | null;
 }): MainView {
-  const { mode, phase, authElicitation, activeSessionId } = input;
-  if (mode !== 'live') return 'message-stream';
+  const { phase, authElicitation, activeSessionId } = input;
   // The auth gate comes first (App's historical branch order): a login
   // challenge owns the view even mid-session.
   if (phase === 'auth-required' || authElicitation !== null) return 'auth-gate';
@@ -161,17 +157,11 @@ export function mainView(input: {
 }
 
 function hintFor(
-  mode: SessionMode,
   phase: ConnectionPhase,
   error: string | null,
   docStatus: SessionStatus,
   hasSession: boolean,
 ): string | undefined {
-  if (mode !== 'live') {
-    if (docStatus === 'requires_action') return t('lifecycle.awaitingApprovalHint');
-    if (docStatus === 'running') return t('lifecycle.working');
-    return undefined;
-  }
   switch (phase) {
     case 'connecting':
       return t('lifecycle.connecting');
@@ -188,8 +178,8 @@ function hintFor(
     case 'connected':
       if (!hasSession) return t('lifecycle.noSession');
       // Awaiting-approval is a pause, not work (#216): the composer hint
-      // must point at the stream where the permission card waits, in both
-      // live and demo — "working" here contradicted the status bar.
+      // must point at the stream where the permission card waits —
+      // "working" here contradicted the status bar.
       if (docStatus === 'requires_action') return t('lifecycle.awaitingApprovalHint');
       if (docStatus !== 'idle') return t('lifecycle.working');
       return undefined;
@@ -197,7 +187,6 @@ function hintFor(
 }
 
 export function foregroundLifecycle({
-  mode,
   docStatus,
   connection,
   hasSession,
@@ -205,11 +194,10 @@ export function foregroundLifecycle({
 }: ForegroundLifecycleInput): ForegroundLifecycle {
   const phase = connectionPhase(connection.status, connection.error, switching);
   const busy = docStatus !== 'idle' || switching;
-  const composerDisabled = mode === 'live' ? !isLinkUp(phase) || !hasSession || busy : busy;
+  const composerDisabled = !isLinkUp(phase) || !hasSession || busy;
   // Mid-turn the field stays writable (#216 drafting, now queueing too):
   // whatever is written is held until the turn ends.
-  const canQueue =
-    docStatus !== 'idle' && !switching && (mode !== 'live' || (isLinkUp(phase) && hasSession));
+  const canQueue = docStatus !== 'idle' && !switching && isLinkUp(phase) && hasSession;
   return {
     phase,
     error: connection.error,
@@ -218,7 +206,7 @@ export function foregroundLifecycle({
     composerDisabled,
     composerInputLocked: composerDisabled && !canQueue,
     canQueue,
-    canStop: mode === 'live' && isLinkUp(phase) && docStatus === 'running',
-    hint: hintFor(mode, phase, connection.error, docStatus, hasSession),
+    canStop: isLinkUp(phase) && docStatus === 'running',
+    hint: hintFor(phase, connection.error, docStatus, hasSession),
   };
 }

@@ -27,8 +27,8 @@ export function useMessageStreamItems(): FlatItem[] {
  * a client with config options SHOULD use them exclusively and ignore
  * `modes` — when the agent models its mode selector as a config option, the
  * picker derives from it and writes go through set_config_option (one
- * full-list response refreshes both views). Replay sessions carry no config
- * options and fall through to doc.modes + setMode.
+ * full-list response refreshes both views). Without such an option the
+ * picker falls through to doc.modes + setMode.
  */
 export function useSessionModes(controller: ForegroundSessionController) {
   const doc = useActiveDoc();
@@ -45,13 +45,12 @@ export function useSessionModes(controller: ForegroundSessionController) {
 
 /** The foreground session's lifecycle: phase, composer gates, hint. */
 export function useForegroundLifecycle(): ForegroundLifecycle {
-  const mode = usePanda((s) => s.mode);
   const docStatus = useActiveDoc().status;
   const { status, error, sessionId } = useActiveConnection();
   const switching = useActiveSwitching() !== null;
   return useMemo(
-    () => foregroundLifecycle({ mode, docStatus, connection: { status, error }, hasSession: sessionId !== null, switching }),
-    [mode, docStatus, status, error, sessionId, switching],
+    () => foregroundLifecycle({ docStatus, connection: { status, error }, hasSession: sessionId !== null, switching }),
+    [docStatus, status, error, sessionId, switching],
   );
 }
 
@@ -66,18 +65,16 @@ export function useConnectionLifecycle(connectionId: string): ConnectionLifecycl
  * (#200), or the message stream. Onboarding is pointer-decided (#218): a
  * retained document stays readable after a clean disconnect. */
 export function useMainView(): MainView {
-  const mode = usePanda((s) => s.mode);
   const connection = useActiveConnection();
   const switching = useActiveSwitching() !== null;
   const activeSessionId = usePanda((s) => s.activeSessionId);
   return useMemo(
     () =>
       mainView({
-        mode,
         phase: connectionPhase(connection.status, connection.error, switching),
         authElicitation: connection.authElicitation,
         activeSessionId,
       }),
-    [mode, connection, switching, activeSessionId],
+    [connection, switching, activeSessionId],
   );
 }

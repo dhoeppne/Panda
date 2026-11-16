@@ -14,7 +14,7 @@
     <img src="branding/clean/series-retro-sleep.png" alt="Idle" width="88" />
   </p>
   <p><em>English · <a href="README.zh-CN.md">简体中文</a></em></p>
-  <p><img src="docs/assets/demo.gif" alt="Panda demo: a scripted agent session — streaming replies, tool-call cards, an edit diff behind an inline permission card, tests, and a usage summary" /></p>
+  <p><img src="docs/assets/demo.gif" alt="Panda: an agent session — streaming replies, tool-call cards, an edit diff behind an inline permission card, tests, and a usage summary" /></p>
 </div>
 
 People who build agents rarely want to build frontends — and a decent chat client is a whole project: streaming rendering, tool-call cards, diff highlighting, permission prompts, plans and usage, session management and reconnect recovery. Panda has finished that project: **implement [ACP (Agent Client Protocol)](https://agentclientprotocol.com) in your agent, and it immediately gets this meticulously crafted message stream.** Panda is not an IDE plugin; it is a standalone conversation app. No bundled runtime, no accounts, no backend — the connection and the data stay with you.
@@ -36,7 +36,7 @@ For a ten-minute, write-it-from-scratch walkthrough see the [agent quickstart](d
 
 ## Get Panda
 
-Pick by scenario — the desktop build connects stdio agents you develop; the web app includes a built-in scripted demo, no agent needed:
+Pick by scenario — the desktop build connects stdio agents you develop; the web app connects ACP-over-WebSocket agents:
 
 - **Web (run locally)** — this fork does not host the web app. Run `pnpm dev` (needs Node 24+ and pnpm 11, see [Development](#development)), then open `http://127.0.0.1:5173`. Point the app at an ACP-over-WebSocket endpoint and the message stream is live.
 - **Desktop (macOS / Windows) — beta** — grab a build from [GitHub Releases](https://github.com/la-creche/Panda/releases). The desktop shell works — same UI and protocol stack as the web version, plus direct stdio agents — but it has not been through organized release testing yet, so it ships as beta; day-to-day, prefer the web version:
@@ -76,7 +76,6 @@ All of the following works out of the box for any integrated agent — this is t
 - **Images both ways** — paste or pick images for capable agents; render images in user/agent messages, thoughts and tool results
 - **Long sessions** — a virtualized message list that follows streaming growth yet detaches only on genuine user scroll
 - **Direct stdio agents on desktop** — spawn a local ACP agent command and talk NDJSON over its pipes, managed lifecycle included
-- **Scripted demo replay** — the same UI driven by a scripted agent, no backend needed: run `pnpm dev`, then open `#/demo` (`?demo=long` streams an 80-turn session)
 
 ## Works with existing agents, too
 
@@ -89,7 +88,7 @@ Paths for connecting existing agents: the [user guide](docs/user-guide.md) (Chin
 
 ## How it works
 
-ACP is an event stream, but the UI needs a document. A pure reduction layer folds `session/update` notifications into a stable `SessionDocument`; React renders only that document, and protocol-version differences are absorbed below the components. Session drivers — the live client and the scripted replay — feed the same store actions, so the offline demo exercises exactly the code paths a live connection uses. In the browser Panda is a **pure protocol client** (it never spawns agent processes); the desktop shell adds exactly one host capability — the stdio process plane.
+ACP is an event stream, but the UI needs a document. A pure reduction layer folds `session/update` notifications into a stable `SessionDocument`; React renders only that document, and protocol-version differences are absorbed below the components. The live client writes to the store only through a narrow port, the same port the store tests drive. In the browser Panda is a **pure protocol client** (it never spawns agent processes); the desktop shell adds exactly one host capability — the stdio process plane.
 
 ## Documentation
 
@@ -117,7 +116,7 @@ Requires Node 24+, pnpm 11, and (for the desktop shell only) a Rust toolchain.
 
 ```sh
 pnpm install
-pnpm dev           # http://127.0.0.1:5173 — #/demo runs the scripted replay
+pnpm dev           # http://127.0.0.1:5173
 pnpm typecheck     # tsc --noEmit
 pnpm test          # vitest — includes live-agent e2e when test-agent deps are installed
 pnpm build         # typecheck + vite build

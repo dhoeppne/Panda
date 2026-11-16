@@ -95,7 +95,7 @@ export function useLiveSession() {
 
 /**
  * The live driver's full surface (#51): the foreground session controller
- * (the seam it shares with the demo replay) plus the connection-level
+ * plus the connection-level
  * operations only a live connection can have. Handwritten so a renamed
  * member fails here, at the hook, instead of at the call site.
  */

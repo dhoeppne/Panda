@@ -13,8 +13,8 @@ describe('ExternalLink', () => {
   });
 
   it('leaves the app’s own routes and non-http schemes to the browser', () => {
-    expect(renderToStaticMarkup(createElement(ExternalLink, { href: '#/demo' }, 'demo'))).toBe(
-      '<a href="#/demo">demo</a>',
+    expect(renderToStaticMarkup(createElement(ExternalLink, { href: '#/settings' }, 'settings'))).toBe(
+      '<a href="#/settings">settings</a>',
     );
     expect(
       renderToStaticMarkup(createElement(ExternalLink, { href: 'mailto:tech@example.com' }, 'mail')),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, Menu } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Sidebar } from './components/Sidebar';
@@ -18,9 +18,8 @@ import {
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
 import { navigate, useHashRoute } from './routes';
-import { composerDraftKey, DEMO_DRAFT_KEY } from './composerDrafts';
+import { composerDraftKey } from './composerDrafts';
 import { SettingsPage, SETTINGS_SECTIONS, type SettingsSectionId } from './components/SettingsPage';
-import { useReplaySession } from './useReplaySession';
 import { useLiveSession } from './useLiveSession';
 import { UserNoticeToasts } from './components/UserNoticeToasts';
 import type { ForegroundSessionController } from './session-controller';
@@ -32,15 +31,6 @@ import { useI18n } from './i18n/context';
  * swaps only the main column's content (#111) so the app chrome — sidebar,
  * header, mobile drawer — never unmounts across routes. */
 export default function App() {
-  const route = useHashRoute();
-  // Phase 2: the hash owns the session mode — `#/demo` (production-
-  // reachable since #196; the first-run empty state is its in-UI entry)
-  // switches the UI to the scripted replay and auto-plays it; every other
-  // route renders live connections. Mode changes never touch connections
-  // (issue #21): the replay is a display layer over the same store.
-  useEffect(() => {
-    usePanda.getState().setMode(route === 'demo' ? 'demo' : 'live');
-  }, [route]);
   return <MainScreen />;
 }
 
@@ -51,7 +41,6 @@ function MainScreen() {
   // Which settings section is showing (#117) — MainScreen-level so it
   // survives settings ⇄ main route flips (returning lands where you left).
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('general');
-  const mode = usePanda((s) => s.mode);
   const doc = useActiveDoc();
   const connection = useActiveConnection();
   const activeConnectionId = usePanda((s) => s.activeConnectionId);
@@ -61,12 +50,10 @@ function MainScreen() {
   // single decision point, never the raw agent declaration.
   const effectiveCaps = useActiveEffectiveCapabilities();
 
-  const demo = useReplaySession();
   const live = useLiveSession();
-  const liveActive = mode === 'live';
-  // One pick per render (#51): both drivers implement the foreground
-  // session controller; members are handed down from here individually.
-  const controller: ForegroundSessionController = liveActive ? live : demo;
+  // The foreground session controller (#51): members are handed down from
+  // here individually.
+  const controller: ForegroundSessionController = live;
   // Status meaning comes from the lifecycle projection (#53) — busy,
   // composer gating, hint and the auth-gate branch are consumed, not derived.
   const lifecycle = useForegroundLifecycle();
@@ -87,9 +74,7 @@ function MainScreen() {
   // anchor (#218): offline retained-document viewing diverges the two (the
   // anchor is null while the pointer moves between retained documents), and
   // an anchor-keyed key would collapse every offline view onto one bucket.
-  const foregroundSessionKey = liveActive
-    ? composerDraftKey(activeConnectionId ?? 'none', activeSessionId)
-    : DEMO_DRAFT_KEY;
+  const foregroundSessionKey = composerDraftKey(activeConnectionId ?? 'none', activeSessionId);
 
   // Queued messages (messageQueue.ts) go out one per finished turn of the
   // foreground session; a turn that stopped early pauses the queue.
@@ -101,9 +86,7 @@ function MainScreen() {
     send: controller.send,
   });
 
-  const activeSession = liveActive
-    ? sessions.find((entry) => entry.sessionId === activeSessionId)
-    : undefined;
+  const activeSession = sessions.find((entry) => entry.sessionId === activeSessionId);
   // On the settings route the header carries the ACTIVE SECTION's title and
   // description (#140): the page-level header inside the column is gone, so
   // the top bar is where "which settings page am I on" answers itself. The
@@ -111,14 +94,10 @@ function MainScreen() {
   const settingsSectionMeta = SETTINGS_SECTIONS.find((entry) => entry.id === settingsSection);
   const headerTitle = onSettings
     ? t(settingsSectionMeta?.titleKey ?? 'settings.title')
-    : !liveActive
-      ? t('app.demoHeaderTitle')
-      : (activeSession?.title ?? connection.agentName ?? t('app.liveSessionTitle'));
+    : (activeSession?.title ?? connection.agentName ?? t('app.liveSessionTitle'));
   const headerMeta = onSettings
     ? (settingsSectionMeta ? t(settingsSectionMeta.descKey) : null)
-    : liveActive
-      ? (connection.url ?? 'acp')
-      : 'acp://demo-agent · demo replay';
+    : (connection.url ?? 'acp');
 
   return (
     <div className="app-shell">
@@ -132,7 +111,6 @@ function MainScreen() {
         />
       )}
       <Sidebar
-        mode={mode}
         live={live}
         mobileOpen={mobileNavigationOpen}
         onMobileClose={() => setMobileNavigationOpen(false)}
@@ -188,8 +166,8 @@ function MainScreen() {
               />
             ) : view === 'onboarding' ? (
               // First-run onboarding (#200): no foreground session document
-              // to show → the three ways in (demo / connect your own agent /
-              // existing agents). A connection still opening its first
+              // to show → the two ways in (connect your own agent / existing
+              // agents). A connection still opening its first
               // session (connecting, session/new in flight) passes through
               // here briefly — the status bar narrates that phase. A clean
               // disconnect does NOT land here (#218): its retained document
@@ -201,7 +179,6 @@ function MainScreen() {
             <StatusBar
               doc={doc}
               connection={connection}
-              mode={mode}
               onAuthenticate={live.authenticate}
             />
             <Composer
@@ -212,10 +189,7 @@ function MainScreen() {
               hint={lifecycle.hint}
               // Undefined until the live link is up and capabilities are
               // negotiated (#214): no agent, no capability claims either way.
-              canAttachImages={
-                !liveActive ||
-                (connection.status === 'connected' ? effectiveCaps.image.available : undefined)
-              }
+              canAttachImages={connection.status === 'connected' ? effectiveCaps.image.available : undefined}
               canStop={lifecycle.canStop}
               onStop={live.cancel}
               modes={sessionModes.modes}

@@ -6,7 +6,7 @@
  * - 步骤     = 最后一条 HumanMessage 之后已出现的 AIMessage 个数
  *   (LangGraph 一轮里模型可能被多次调用:每次工具循环都是一次模型调用)
  *
- * 故事线与 `src/replay/fixtures.ts` 的 mainScenario 呼应:重构 auth 校验。
+ * 故事线:重构 auth 校验。
  * 剧本文本与 e2e 断言(src/acp/LiveAcpClient.e2e.test.ts)逐字对齐,改动两侧必须同步。
  */
 

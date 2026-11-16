@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   composerDraftKey,
   useComposerDrafts,
-  DEMO_DRAFT_KEY,
   type ComposerDraft,
 } from './composerDrafts';
 import type { ImageAttachment } from './attachments';
@@ -28,7 +27,6 @@ describe('composerDraftKey (bug hunt #15: drafts are per foreground session)', (
     expect(composerDraftKey('conn-a', 's2')).not.toBe(composerDraftKey('conn-a', 's1'));
     expect(composerDraftKey('conn-b', 's1')).not.toBe(composerDraftKey('conn-a', 's1'));
     expect(composerDraftKey('conn-a', null)).toBe('conn-a::none');
-    expect(DEMO_DRAFT_KEY).toBe('demo');
   });
 });
 
