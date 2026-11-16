@@ -24,7 +24,6 @@ import {
   usePanda,
   useConnectionOrder,
   type SessionEntry,
-  type SessionMode,
 } from '../store';
 import type { SessionDocument } from '../protocol/types';
 import { useConnectionLifecycle } from '../projector/hooks';
@@ -54,8 +53,7 @@ import './Sidebar.css';
  * subscribes narrowly to its own slot so a streaming connection only
  * re-renders its own group.
  */
-export function Sidebar({ mode, live, mobileOpen, onMobileClose, settingsSection, onSelectSettingsSection }: {
-  mode: SessionMode;
+export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSelectSettingsSection }: {
   live: LiveSessionFacade;
   mobileOpen: boolean;
   onMobileClose(): void;
@@ -99,12 +97,9 @@ export function Sidebar({ mode, live, mobileOpen, onMobileClose, settingsSection
     reconcileProfileSlots(profiles);
   }, [profiles]);
 
-  const liveMode = mode === 'live';
   const activeConnectionId = usePanda((s) => s.activeConnectionId);
-  const footerAgent = usePanda((s) =>
-    s.mode === 'live'
-      ? s.connections[s.activeConnectionId ?? '']?.connection.agentName ?? null
-      : null,
+  const footerAgent = usePanda(
+    (s) => s.connections[s.activeConnectionId ?? '']?.connection.agentName ?? null,
   );
 
   return (
@@ -150,21 +145,6 @@ export function Sidebar({ mode, live, mobileOpen, onMobileClose, settingsSection
             />
           </div>
           <div className="sidebar-sessions">
-            {/* Demo mode (#219): the banner self-describes — the story title
-                here read as a session row of the group below it. The live
-                groups keep rendering underneath (demo is a display layer,
-                issue #21), labeled as background so the two domains can't
-                read as one mixed list; no label without live state, so the
-                fresh-visitor #/demo path stays clean. */}
-            {!liveMode && (
-              <div className="sidebar-demo-chip">
-                <MessagesSquare size={13} className="sidebar-icon-faint" />
-                <span className="truncate">{t('side.demoReplay')}</span>
-              </div>
-            )}
-            {!liveMode && orderedIds.length > 0 && (
-              <div className="sidebar-live-label">{t('side.liveInBackground')}</div>
-            )}
             <div className="sidebar-group-list">
               {orderedIds.map((connectionId) => (
                 <ConnectionGroupRow
@@ -177,7 +157,7 @@ export function Sidebar({ mode, live, mobileOpen, onMobileClose, settingsSection
                   exitSettings={exitSettings}
                 />
               ))}
-              {liveMode && orderedIds.length === 0 && (
+              {orderedIds.length === 0 && (
                 <div className="sidebar-empty">{t('side.noAgents')}</div>
               )}
             </div>
@@ -205,11 +185,7 @@ export function Sidebar({ mode, live, mobileOpen, onMobileClose, settingsSection
         <div className="sidebar-footer">
           <Bot size={14} className="sidebar-footer-icon" />
           <span className="truncate">
-            {liveMode
-              ? footerAgent
-                ? `${footerAgent} · live`
-                : 'acp · live'
-              : 'demo-agent · replay'}
+            {footerAgent ? `${footerAgent} · live` : 'acp · live'}
           </span>
           <IconButton
             variant="ghost"

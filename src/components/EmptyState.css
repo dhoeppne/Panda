@@ -1,6 +1,6 @@
 /* First-run onboarding (#200): a quiet card centered in the main column.
  * Stream-first hierarchy — content-size title, muted lead, chrome-size
- * steps; the demo CTA is the only accent-bearing control. */
+ * steps. */
 
 .empty-state {
   display: flex;

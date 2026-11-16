@@ -14,21 +14,10 @@ describe('parseHash', () => {
     // Unknown or stale links fall back to main — never a blank app.
     ['#/nope', 'main'],
     ['#/settings/extra', 'main'],
+    // The scripted demo route is gone: an old #/demo link opens main.
+    ['#/demo', 'main'],
   ])('parses %j as %s', (hash, route) => {
     expect(parseHash(hash)).toBe(route);
-  });
-});
-
-describe('demo route (explicit URL in every build)', () => {
-  it('parses #/demo in production builds too', () => {
-    const originalDev = import.meta.env.DEV;
-    import.meta.env.DEV = false;
-    try {
-      expect(parseHash('#/demo')).toBe('demo');
-      expect(parseHash('#demo/')).toBe('demo');
-    } finally {
-      import.meta.env.DEV = originalDev;
-    }
   });
 });
 
@@ -45,9 +34,7 @@ describe('routeHash / navigate round-trip', () => {
   it('produces canonical hashes parseHash round-trips', () => {
     expect(routeHash('main')).toBe('#/');
     expect(routeHash('settings')).toBe('#/settings');
-    expect(routeHash('demo')).toBe('#/demo');
     expect(parseHash(routeHash('main'))).toBe('main');
     expect(parseHash(routeHash('settings'))).toBe('settings');
-    expect(parseHash(routeHash('demo'))).toBe('demo');
   });
 });

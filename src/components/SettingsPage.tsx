@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Activity, ArrowLeft, Bot, Check, Copy, MessagesSquare, Minus, Pencil, Play, Plug, PlugZap, Plus, SlidersHorizontal, Trash2, WandSparkles } from 'lucide-react';
+import { Activity, ArrowLeft, Bot, Check, Copy, MessagesSquare, Minus, Pencil, Plug, PlugZap, Plus, SlidersHorizontal, Trash2, WandSparkles } from 'lucide-react';
 import { Button } from '@astryxdesign/core/Button';
 import { useImperativeAlertDialog } from '@astryxdesign/core/AlertDialog';
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
@@ -217,21 +217,6 @@ function DiagnosticsSection() {
           />
         </SettingsRow>
       </section>
-      {import.meta.env.DEV && (
-        <section className="settings-card settings-card--muted">
-          <h2 className="settings-group-title">{t('settings.dev')}</h2>
-          <SettingsRow title={t('settings.demoReplay')} description={t('settings.devRowDesc')}>
-            <Button
-              variant="secondary"
-              size="sm"
-              label={t('settings.demoReplay')}
-              icon={<Play size={12} />}
-              clickAction={() => navigate('demo')}
-              tooltip={t('settings.demoReplayTooltip')}
-            />
-          </SettingsRow>
-        </section>
-      )}
     </>
   );
 }

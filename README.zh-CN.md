@@ -14,7 +14,7 @@
     <img src="branding/clean/series-retro-sleep.png" alt="Idle" width="88" />
   </p>
   <p><em><a href="README.md">English</a> · 简体中文</em></p>
-  <p><img src="docs/assets/demo.gif" alt="Panda demo:一段脚本化的 agent 会话——流式回复、工具调用卡片、行内权限卡后的代码 diff、测试与用量收尾" /></p>
+  <p><img src="docs/assets/demo.gif" alt="Panda:一段 agent 会话——流式回复、工具调用卡片、行内权限卡后的代码 diff、测试与用量收尾" /></p>
 </div>
 
 开发 agent 的人常常不想开发界面——而一个像样的会话前端是一整套工程:流式渲染、工具调用卡片、diff 高亮、权限审批、计划与用量、会话管理与断线恢复。这些 Panda 都做好了:**你的 agent 实现 [ACP(Agent Client Protocol)](https://agentclientprotocol.com),就立刻拥有这条精心打磨的消息流**。Panda 不是 IDE 插件,是一个独立的会话应用;没有捆绑运行时,没有账号与后端,连接与数据都在你手里。
@@ -36,7 +36,7 @@
 
 ## 获取 Panda
 
-按场景取用——连自己开发的 stdio agent 用桌面版;网页版内置脚本化 demo,不需要任何 agent:
+按场景取用——连自己开发的 stdio agent 用桌面版;网页版连 ACP-over-WebSocket agent:
 
 - **网页版(本地运行)**——本 fork 不托管网页版。运行 `pnpm dev`(需要 Node 24+ 与 pnpm 11,见下方「开发」一节)后打开 `http://127.0.0.1:5173`。指向一个 ACP-over-WebSocket 端点,消息流即刻上线。
 - **桌面版(macOS / Windows)— beta**——从 [GitHub Releases](https://github.com/la-creche/Panda/releases) 下载。桌面壳可用——与网页版同一套界面与协议栈,另加 stdio 直连 agent——但尚未经过专门的组织化发布测试,以 beta 对待;日常使用推荐网页版:
@@ -76,7 +76,6 @@
 - **双向图片**——agent 声明能力后可粘贴或选择图片发送;用户/agent 消息、思考块与工具结果里的图片都会渲染
 - **长会话**——虚拟化消息列表,流式增长时自动跟随底部,只在用户真正滚动时脱离
 - **桌面版直连 stdio agent**——在本机拉起一条 ACP agent 命令,通过其管道以 NDJSON 对话,生命周期全程托管
-- **脚本化 demo 回放**——同一套界面由脚本化 agent 驱动,无需后端:运行 `pnpm dev` 后打开 `#/demo`(`?demo=long` 播放 80 轮长会话)
 
 ## 顺带支持现成 agent
 
@@ -89,7 +88,7 @@
 
 ## 工作原理
 
-ACP 是事件流,而界面需要的是文档。一层纯归约把 `session/update` 通知折叠成稳定的 `SessionDocument`;React 只渲染这份文档,协议版本差异在组件之下被吸收。会话驱动——live 客户端与脚本回放——喂给同一套 store action,所以离线 demo 走的正是真实连接的代码路径。浏览器里的 Panda 是**纯协议客户端**(从不拉起 agent 进程);桌面壳只增加一个宿主能力——stdio 进程面。
+ACP 是事件流,而界面需要的是文档。一层纯归约把 `session/update` 通知折叠成稳定的 `SessionDocument`;React 只渲染这份文档,协议版本差异在组件之下被吸收。live 客户端只经一个窄接口写 store,store 的测试驱动的也是同一个接口。浏览器里的 Panda 是**纯协议客户端**(从不拉起 agent 进程);桌面壳只增加一个宿主能力——stdio 进程面。
 
 ## 文档
 
@@ -117,7 +116,7 @@ ACP 是事件流,而界面需要的是文档。一层纯归约把 `session/updat
 
 ```sh
 pnpm install
-pnpm dev           # http://127.0.0.1:5173 —— #/demo 即脚本化回放
+pnpm dev           # http://127.0.0.1:5173
 pnpm typecheck     # tsc --noEmit
 pnpm test          # vitest —— test-agent 依赖已装时含 live-agent e2e
 pnpm build         # typecheck + vite build

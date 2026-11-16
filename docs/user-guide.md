@@ -24,13 +24,7 @@ pnpm install
 pnpm dev            # http://127.0.0.1:5173
 ```
 
-首次打开落在会话屏（没有 agent 时是空态）。想先看界面长什么样，打开 **demo 回放**：网页版地址栏加 `#/demo`（即 <https://lukaisluka.github.io/Panda/#/demo>；开发服务器同理），Panda 会自动播放一段脚本化的 agent 会话（重构 auth 校验的故事），不需要任何外部服务。回放和真实连接走的是完全相同的内部路径，所以它是了解界面行为的样板：
-
-- 发消息试试——回放驱动会给出脚本化的后续回应
-- 遇到权限卡片时点 Allow / Reject，观察 agent 的不同走向
-- 想重看一遍，离开再回到 `#/demo` 即可从头回放
-
-想校准长会话下的滚动表现，用长场景回放：`?demo=long` 加路由（即 <https://lukaisluka.github.io/Panda/?demo=long#/demo>，80 轮会话）。
+首次打开落在会话屏（没有 agent 时是空态）。
 
 ## 2. 连接真实 agent
 
@@ -177,9 +171,6 @@ Panda 目前只协商 **v1**（`PROTOCOL_VERSION = 1`），不匹配时 fail fas
 
 **我的对话数据存在哪？**
 对话内容在 agent 侧；Panda 只在浏览器 localStorage 里按端点记住会话列表（id、目录、标题、时间）、你上次填的地址/目录，以及你保存的 Agent 配置（名称、地址、工作目录），方便下次连接。Panda 自己不落任何对话内容。
-
-**demo 回放和真实连接有什么区别？**
-同一个界面、同一套内部状态机，只是消息来源不同：demo 是内置脚本，live 是 JSON-RPC over WebSocket。demo 不需要网络，也不碰 localStorage 之外的任何东西。
 
 **为什么我发的消息在切换会话后不见了？**
 切换会话（`session/load`）会把界面重置成目标会话的完整历史重放，你切走前的界面只是被目标会话的历史替换了，数据都在 agent 侧，切回来即可。

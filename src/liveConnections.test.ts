@@ -105,7 +105,6 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.spyOn(console, 'info').mockImplementation(() => {});
   usePanda.setState({
-    mode: 'demo',
     connections: {},
     activeConnectionId: null,
     activeSessionId: null,
@@ -497,7 +496,6 @@ describe('opening sessions across connections (issue #21)', () => {
     const state = usePanda.getState();
     expect(state.activeConnectionId).toBe('agent-a');
     expect(state.activeSessionId).toBe('s-a1');
-    expect(state.mode).toBe('live');
   });
 
   it('connected background slot: foregrounds, then transactional load', async () => {
@@ -798,7 +796,6 @@ describe('offline agent seeding (phase 3)', () => {
       'panda.sessions:ws://p/acp',
       JSON.stringify([{ sessionId: 'known', cwd: '/p', title: 'Remembered', updatedAt: null }]),
     );
-    usePanda.getState().setMode('live');
 
     seedProfileSlots([profile('p'), profile('q')], storage);
 
@@ -824,16 +821,6 @@ describe('offline agent seeding (phase 3)', () => {
     expect(usePanda.getState().activeConnectionId).toBe('other');
     expect(slot.connection.status).toBe('error'); // not clobbered by seeding
     expect(slot.connection.sessionId).toBe('s-p');
-  });
-
-  it('seeds regardless of mode — seeding is slot preparation, demo renders none of it', () => {
-    const storage = new MemoryStorage();
-    usePanda.getState().setMode('demo');
-
-    seedProfileSlots([profile('p')], storage);
-
-    expect(usePanda.getState().connections['p']!.connection.status).toBe('disconnected');
-    expect(usePanda.getState().mode).toBe('demo');
   });
 });
 

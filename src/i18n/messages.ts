@@ -7,7 +7,7 @@
  *
  * Scope (issue #91): chrome only — buttons, labels, badges, placeholders,
  * hints, notices, and error strings that reach the UI. NOT translated: agent
- * output (messages, tool results, diffs), demo replay fixtures, user input,
+ * output (messages, tool results, diffs), user input,
  * docs, and code comments (this file's zh column is the only place those
  * strings leave the components).
  *
@@ -20,7 +20,6 @@ export const messages = {
   'app.back': { en: 'Back', zh: '返回' },
   'app.backTooltip': { en: 'Back to the session view', zh: '回到会话界面' },
   'app.liveSessionTitle': { en: 'Live session', zh: 'Live 会话' },
-  'app.demoHeaderTitle': { en: 'Refactor auth validation', zh: '重构 auth 校验' },
 
   // ---- shared connection states (StatusDot labels etc.) ----
   'conn.connected': { en: 'Connected', zh: '已连接' },
@@ -43,10 +42,9 @@ export const messages = {
   // ---- EmptyState (first-run onboarding, #200) ----
   'empty.title': { en: 'Connect your agent', zh: '把你的 agent 连上来' },
   'empty.lead': {
-    en: 'Panda is a pure protocol client: implement ACP in your agent and this message stream is its UI. Watch the scripted demo first, or connect your own agent below.',
-    zh: 'Panda 是纯协议客户端:你的 agent 说 ACP,这条消息流就是它的界面。可以先看一段 demo,或按下面两步连上你自己的 agent。',
+    en: 'Panda is a pure protocol client: implement ACP in your agent and this message stream is its UI. Connect your own agent below.',
+    zh: 'Panda 是纯协议客户端:你的 agent 说 ACP,这条消息流就是它的界面。按下面两步连上你自己的 agent。',
   },
-  'empty.watchDemo': { en: 'Watch a demo', zh: '看一段 demo' },
   'empty.connectHeading': { en: 'Connect your own agent', zh: '连你自己的 agent' },
   'empty.desktopKicker': { en: 'Desktop · direct stdio', zh: '桌面版 · stdio 直连' },
   'empty.desktopBody': {
@@ -277,11 +275,6 @@ export const messages = {
 
   // ---- Sidebar ----
   'side.sessions': { en: 'Sessions', zh: '会话' },
-  'side.demoReplay': { en: 'Demo replay', zh: '演示回放' },
-  'side.liveInBackground': {
-    en: 'Live sessions · running in background',
-    zh: 'Live 会话 · 后台运行中',
-  },
   'side.newSession': { en: 'New session', zh: '新建会话' },
   'side.newSessionTooltip': {
     en: 'Pick an agent to start a new session (or use a custom address for a temporary direct connection)',
@@ -385,7 +378,6 @@ export const messages = {
     en: 'Environment and the recent console log, copied to the clipboard for a bug report.',
     zh: '环境信息与最近控制台日志,复制到剪贴板,可附在问题反馈里。',
   },
-  'settings.devRowDesc': { en: 'Replay the scripted agent — no real connection.', zh: '回放剧本 agent,不连真实服务。' },
   'settings.locale.en': { en: 'English', zh: 'English' },
   'settings.locale.zh': { en: '中文', zh: '中文' },
   'settings.profiles': { en: 'Agent profiles', zh: 'Agent 配置' },
@@ -553,12 +545,6 @@ export const messages = {
   'settings.mcpNameRequired': { en: 'Server name is required', zh: '服务器名称不能为空' },
   'settings.mcpCommandRequired': { en: 'stdio type needs an executable command', zh: 'stdio 类型需要可执行命令' },
   'settings.mcpUrlRequired': { en: 'A URL is required', zh: '需要一个 URL' },
-  'settings.dev': { en: 'Developer', zh: '开发者' },
-  'settings.demoReplay': { en: 'Demo replay', zh: 'Demo 回放' },
-  'settings.demoReplayTooltip': {
-    en: 'Open the #/demo scripted replay (no real agent); re-entering replays from the start',
-    zh: '打开 #/demo 剧本回放(不连真实 agent);重新进入即从头重放',
-  },
 
   // ---- diagnostics (#105): crash fallback + settings diagnostics card ----
   'diag.crashTitle': { en: 'Panda hit an error', zh: 'Panda 遇到了错误' },

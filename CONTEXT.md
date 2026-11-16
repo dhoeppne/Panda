@@ -71,8 +71,8 @@ agent 报告的当前工作计划，整体替换：新版本覆盖旧版本，�
 _Avoid_: Plan 块、待办列表（指该概念时）
 
 **前台会话控制器**:
-前台会话的会话级操作接口（发送、权限与 elicitation 了结、模式与配置写入）；live driver 与 demo replay 是它的两个 adapter，主界面每次渲染挑选一次。成员逐个下发给组件，控制器本身不是 props。
-_Avoid_: driver（泛指两者共同面时）、session facade
+前台会话的会话级操作接口（发送、权限与 elicitation 了结、模式与配置写入）；live driver 实现它，主界面把它的成员逐个下发。控制器本身不是 props。
+_Avoid_: driver（指该接口时）、session facade
 
 ### 投影
 

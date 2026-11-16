@@ -6,7 +6,7 @@
  *
  *  - `Acp*` types mirror the ACP wire format (session/update notifications,
  *    v1 shape, Phase 0 subset). They are event-shaped and only the reducer
- *    and the replay driver ever see them.
+ *    and the live client ever see them.
  *  - `SessionDocument` is the session's domain state: the accumulated
  *    protocol facts, document-shaped (turns, blocks, resolved tool-call
  *    state). Render models are never stored here — they are derived from

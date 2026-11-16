@@ -95,7 +95,6 @@ describe('connectionLifecycle', () => {
 
 function foreground(overrides: Partial<ForegroundLifecycleInput>): ForegroundLifecycleInput {
   return {
-    mode: 'live',
     docStatus: 'idle',
     connection: { status: 'connected', error: null },
     hasSession: true,
@@ -103,28 +102,6 @@ function foreground(overrides: Partial<ForegroundLifecycleInput>): ForegroundLif
     ...overrides,
   };
 }
-
-describe('foregroundLifecycle (demo replay)', () => {
-  it('asks for approval while a permission is pending', () => {
-    expect(foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'requires_action' })).hint).toBe(
-      'Awaiting your approval — respond in the message stream',
-    );
-  });
-
-  it('announces work while the turn runs', () => {
-    expect(foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'running' })).hint).toBe('Panda is working…');
-  });
-
-  it('stays empty when idle', () => {
-    expect(foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'idle' })).hint).toBeUndefined();
-  });
-
-  it('never gates the composer on the connection, only on the turn', () => {
-    const demo = foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'running' }));
-    expect(demo.composerDisabled).toBe(true);
-    expect(demo.busy).toBe(true);
-  });
-});
 
 describe('foregroundLifecycle (live connection)', () => {
   it('leads with connection progress and failures before session state', () => {
@@ -189,9 +166,6 @@ describe('foregroundLifecycle (live connection)', () => {
     );
     expect(down.composerInputLocked).toBe(true);
     expect(down.canQueue).toBe(false);
-    // Demo replays queue the same way while their turn runs.
-    expect(foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'requires_action' })).composerInputLocked).toBe(false);
-    expect(foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'running' })).canQueue).toBe(true);
   });
 
   it('gates the composer on the link, the turn and in-flight switches', () => {
@@ -208,7 +182,6 @@ describe('foregroundLifecycle (live connection)', () => {
     expect(foregroundLifecycle(foreground({ docStatus: 'running' })).canStop).toBe(true);
     expect(foregroundLifecycle(foreground({ docStatus: 'idle' })).canStop).toBe(false);
     expect(foregroundLifecycle(foreground({ docStatus: 'running', connection: { status: 'error', error: 'boom' } })).canStop).toBe(false);
-    expect(foregroundLifecycle(foreground({ mode: 'demo', docStatus: 'running' })).canStop).toBe(false);
   });
 
   it('keeps the foreground busy through turns and switches', () => {
@@ -224,7 +197,6 @@ type MainViewInput = Parameters<typeof mainView>[0];
 
 function view(overrides: Partial<MainViewInput> = {}): MainView {
   return mainView({
-    mode: 'live',
     phase: 'connected',
     authElicitation: null,
     activeSessionId: 's-1',
@@ -262,9 +234,5 @@ describe('mainView (断连后留存文档可读, #218)', () => {
         authElicitation: { mode: 'form', id: 'e-1', toolCallId: null, title: 'Login', description: null, fields: [] },
       }),
     ).toBe('auth-gate');
-  });
-
-  it('the demo replay owns the stream unconditionally — no auth gate, no onboarding', () => {
-    expect(view({ mode: 'demo', phase: 'auth-required', activeSessionId: null })).toBe('message-stream');
   });
 });

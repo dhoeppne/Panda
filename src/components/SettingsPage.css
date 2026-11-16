@@ -176,13 +176,6 @@
   background: var(--color-surface);
 }
 
-.settings-card--muted {
-  margin-top: 8px; /* groups the dev card away from the product cards above */
-  padding: 16px 20px 18px;
-  background: transparent;
-  border-style: dashed;
-}
-
 /* --- Row cards (#138: Codex-style one-setting-per-row) --- */
 
 /* Group title: plain text head of a card whose content is SettingsRows —

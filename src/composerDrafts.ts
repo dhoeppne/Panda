@@ -21,10 +21,6 @@ export function composerDraftKey(connectionId: string, sessionId: string | null)
   return `${connectionId}::${sessionId ?? 'none'}`;
 }
 
-/** Draft identity of the scripted replay display layer (#/demo,
- *  production-reachable since #196/#197). */
-export const DEMO_DRAFT_KEY = 'demo';
-
 const NO_DRAFT: ComposerDraft = { value: '', attachments: [], attachmentError: null };
 
 interface ComposerDraftsState {

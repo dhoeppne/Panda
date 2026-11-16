@@ -21,10 +21,10 @@ describe('isExternalHref', () => {
   });
 
   it('rejects the app’s own origin, relative hrefs and non-http schemes', () => {
-    expect(isExternalHref('https://panda.example/Panda/#/demo', BASE, ORIGIN)).toBe(false);
+    expect(isExternalHref('https://panda.example/Panda/#/settings', BASE, ORIGIN)).toBe(false);
     expect(isExternalHref('docs/agent-quickstart.md', BASE, ORIGIN)).toBe(false);
     expect(isExternalHref('/Panda/og-image.png', BASE, ORIGIN)).toBe(false);
-    expect(isExternalHref('#/demo', BASE, ORIGIN)).toBe(false);
+    expect(isExternalHref('#/settings', BASE, ORIGIN)).toBe(false);
     expect(isExternalHref('mailto:tech@example.com', BASE, ORIGIN)).toBe(false);
   });
 

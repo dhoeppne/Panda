@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEMO_CONNECTION_ID,
   connectionStorePort,
   orderedConnectionIds,
   orderedSessions,
@@ -12,17 +11,10 @@ import { connectionLifecycle } from './projector/connectionLifecycle';
 /** Fresh store per test — connection slots are global singletons otherwise. */
 beforeEach(() => {
   usePanda.setState({
-    mode: 'live',
     connections: {},
     activeConnectionId: null,
     activeSessionId: null,
     selectionGeneration: 0,
-  });
-});
-
-describe('initial mode', () => {
-  it('is live — the demo replay is a dev-only #/demo route, not the default', () => {
-    expect(usePanda.getInitialState().mode).toBe('live');
   });
 });
 
@@ -735,14 +727,13 @@ describe('multi-connection foreground (issue #21)', () => {
       usePanda.getState().ensureConnection('idle-old');
       usePanda.getState().ensureConnection('recent');
       usePanda.getState().ensureConnection('never');
-      usePanda.getState().ensureConnection(DEMO_CONNECTION_ID);
       connectionStorePort('idle-old').adoptSession('s', '/x'); // older activity
       vi.advanceTimersByTime(50);
       connectionStorePort('recent').adoptSession('s', '/x'); // newer activity
 
       usePanda.getState().setActiveConnection('never');
 
-      // The foreground pin is gone: order tracks activity only, demo excluded.
+      // The foreground pin is gone: order tracks activity only.
       expect(orderedConnectionIds(usePanda.getState())).toEqual(['recent', 'idle-old', 'never']);
     } finally {
       vi.useRealTimers();

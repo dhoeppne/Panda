@@ -1,15 +1,12 @@
 import { useState } from 'react';
-import { ChevronDown, PlayCircle } from 'lucide-react';
-import { Button } from '@astryxdesign/core/Button';
-import { navigate } from '../routes';
+import { ChevronDown } from 'lucide-react';
 import { ExternalLink } from './ExternalLink';
 import { useI18n } from '../i18n/context';
 import './EmptyState.css';
 
 /** First-run onboarding (#200): with no foreground live session the main
- * column shows the three ways in — the scripted demo (production-
- * reachable, #196), connecting your own agent (the core audience), and a
- * collapsed path for existing-agent users. Pure static chrome: no protocol
+ * column shows the two ways in — connecting your own agent (the core
+ * audience) and a collapsed path for existing-agent users. Pure static chrome: no protocol
  * surface, nothing lazy-loaded. Doc links target GitHub (the Pages deploy
  * ships the app only); per-locale URLs pick the matching mirror. */
 export function EmptyState() {
@@ -21,12 +18,6 @@ export function EmptyState() {
         <div className="empty-state-intro">
           <h1 className="empty-state-title">{t('empty.title')}</h1>
           <p className="empty-state-lead">{t('empty.lead')}</p>
-          <Button
-            variant="primary"
-            icon={<PlayCircle size={16} />}
-            label={t('empty.watchDemo')}
-            clickAction={() => navigate('demo')}
-          />
         </div>
         <div className="empty-state-section">
           <h2 className="empty-state-heading">{t('empty.connectHeading')}</h2>

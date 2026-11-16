@@ -1,9 +1,7 @@
 /**
- * Lightweight hash routing (IA refactor phase 1). Panda has exactly three
- * in-app views — the session screen (`#/`), the settings screen
- * (`#/settings`), and the demo replay (`#/demo`, phase 2: the hash
- * is what drives the demo/live session mode; leaving the route switches the
- * UI back to live without touching connections) — plus dev-only tree-level
+ * Lightweight hash routing (IA refactor phase 1). Panda has exactly two
+ * in-app views — the session screen (`#/`) and the settings screen
+ * (`#/settings`) — plus dev-only tree-level
  * pages that replace the whole render root (`#/astryx-smoke`); those are
  * parsed by the same function so every hash spelling lives in one place.
  *
@@ -13,18 +11,14 @@
  */
 import { useEffect, useState } from 'react';
 
-export type AppRoute = 'main' | 'settings' | 'demo';
+export type AppRoute = 'main' | 'settings';
 
 export type DevPage = 'astryx-smoke' | 'crash';
 
-/** `''` · `'#'` · `'#/'` → main; `#/settings` → settings; `#/demo` → demo
- * (the scripted replay — reachable in production by explicit URL and via
- * the first-run empty state's entry (#200); the app never opens on it by
- * itself). */
+/** `''` · `'#'` · `'#/'` → main; `#/settings` → settings. */
 export function parseHash(hash: string): AppRoute {
   const path = hash.replace(/^#\/?/, '').replace(/\/+$/, '');
   if (path === 'settings') return 'settings';
-  if (path === 'demo') return 'demo';
   return 'main';
 }
 
