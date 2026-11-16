@@ -82,6 +82,7 @@ Panda 建连后的第一个请求,固定为:
 - **整个回合期间 RPC 保持 pending**:边执行边推 `session/update` 通知,结束时才响应 `{ stopReason }`。
 - `stopReason` 枚举:`end_turn` / `max_tokens` / `max_turn_requests` / `refusal` / `cancelled`。除 `end_turn` 外,每一个都会作为用户可见的回合结束提示呈现。
 - 响应中的 `usage`(UNSTABLE)被客户端忽略——上下文占用请走 `usage_update` 通知(`used`/`size` 对,不是累计量)。
+- `usage_update._meta["creche/spend"]`(可选,la-creche 扩展):`{amount, budget, currency}`,即 agent 家族当日花费与每日预算(`budget` 可为 `null`)。状态栏显示为「$12.40 / $60 today」;形状不符则忽略,缺省时保留上一次的值。它不是 ACP 的 `cost`(会话累计成本)。
 
 ### 2.4 `session/update` —— 输出通道
 

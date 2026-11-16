@@ -82,6 +82,7 @@ After the handshake, a plain connection only fetches `session/list`; it does not
 - **The RPC stays pending for the whole turn**: stream `session/update` notifications while working, respond `{ stopReason }` only when the turn ends.
 - `stopReason` enum: `end_turn` / `max_tokens` / `max_turn_requests` / `refusal` / `cancelled`. Everything except `end_turn` surfaces as a user-visible turn-ending notice.
 - The response's `usage` (UNSTABLE) is ignored by the client — report context occupancy via `usage_update` notifications (the `used`/`size` pair, not a cumulative tally).
+- `usage_update._meta["creche/spend"]` (optional, a la-creche extension): `{amount, budget, currency}`, the agent family's spend today against its daily budget (`budget` may be `null`). The status bar shows it as "$12.40 / $60 today"; an off-shape value is ignored, and an update without it keeps the last one. It is not ACP's `cost` (the cumulative session cost).
 
 ### 2.4 `session/update` — the output channel
 

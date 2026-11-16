@@ -38,6 +38,13 @@ export const messages = {
   'status.awaitingApproval': { en: 'Awaiting your approval', zh: '等待你的批准' },
   'status.working': { en: 'Working…', zh: '工作中…' },
   'status.ready': { en: 'Ready', zh: '就绪' },
+  'status.spendOfBudget': { en: '{amount} / {budget} today', zh: '今日 {amount} / {budget}' },
+  'status.spendToday': { en: '{amount} today', zh: '今日 {amount}' },
+  'status.spendTitle': {
+    en: 'Spend of this agent family today, against its daily budget of {budget}',
+    zh: '此 agent 家族今日花费,每日预算 {budget}',
+  },
+  'status.spendNoBudget': { en: 'Spend of this agent family today (no daily budget)', zh: '此 agent 家族今日花费(无每日预算)' },
 
   // ---- EmptyState (first-run onboarding, #200) ----
   'empty.title': { en: 'Connect your agent', zh: '把你的 agent 连上来' },

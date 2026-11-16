@@ -24,7 +24,7 @@ export function emptySession(): SessionDocument {
   return {
     turns: [],
     status: 'idle',
-    usage: { used: 0, size: 0, cost: null },
+    usage: { used: 0, size: 0, cost: null, spend: null },
     plan: null,
     compactions: {},
     modes: null,
@@ -115,6 +115,7 @@ export function applyUpdate(
             used: update.used,
             size: update.size,
             cost: update.cost ?? doc.usage.cost,
+            spend: update.spend ?? doc.usage.spend,
           },
         },
         'usage_update',

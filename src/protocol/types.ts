@@ -61,6 +61,14 @@ export type AcpPlanEntry = {
 
 export type AcpCost = { amount: number; currency: string };
 
+/**
+ * The agent family's spend in its budget day, against its daily budget
+ * (`budget` null: the family has none). Not ACP: creche agents send it in
+ * `usage_update._meta["creche/spend"]`, because ACP's `cost` is the cost of
+ * the session, which their model gateway does not give.
+ */
+export type AcpSpend = { amount: number; budget: number | null; currency: string };
+
 /** v1 PromptResponse.stopReason — why a prompt turn ended. */
 export type AcpStopReason = 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' | 'cancelled';
 
@@ -368,6 +376,7 @@ export type AcpSessionUpdate =
       used: number;
       size: number;
       cost?: AcpCost;
+      spend?: AcpSpend;
       raw?: SessionNotification;
     }
   /**
@@ -545,6 +554,8 @@ export type Usage = {
   used: number;
   size: number;
   cost: AcpCost | null;
+  /** Latest-wins like `cost`: an update without it keeps the last one. */
+  spend: AcpSpend | null;
 };
 
 /** The folded state of one context compaction (patched per update). */

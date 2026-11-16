@@ -7,6 +7,7 @@ import {
   toAcpUpdates,
   toConfigOptions,
   toAvailableCommands,
+  toSpend,
   toElicitationFormRequest,
   toElicitationUrlRequest,
   toPermissionRequest,
@@ -192,6 +193,40 @@ describe('toAcpUpdates raw preservation', () => {
     expect(toAcpUpdates(usage)).toEqual([
       { sessionUpdate: 'usage_update', used: 1, size: 2, cost: undefined, raw: usage },
     ]);
+  });
+
+  it('maps the creche family spend from usage_update _meta', () => {
+    const spend = { amount: 12.4, budget: 60, currency: 'USD' };
+    const usage = note({
+      sessionUpdate: 'usage_update',
+      used: 1,
+      size: 2,
+      _meta: { 'creche/spend': spend },
+    } satisfies SessionUpdate);
+    expect(toAcpUpdates(usage)).toEqual([
+      { sessionUpdate: 'usage_update', used: 1, size: 2, cost: undefined, spend, raw: usage },
+    ]);
+  });
+
+  it('ignores an off-shape spend instead of showing it wrong', () => {
+    expect(toSpend({ 'creche/spend': { amount: 1, budget: null, currency: 'USD' } })).toEqual({
+      amount: 1,
+      budget: null,
+      currency: 'USD',
+    });
+    for (const bad of [
+      undefined,
+      null,
+      {},
+      { 'creche/spend': 'x' },
+      { 'creche/spend': { amount: -1, budget: 60, currency: 'USD' } },
+      { 'creche/spend': { amount: 1, budget: '60', currency: 'USD' } },
+      { 'creche/spend': { amount: 1, currency: 'USD' } },
+      { 'creche/spend': { amount: 1, budget: 60 } },
+      { 'creche/spend': { amount: Number.NaN, budget: 60, currency: 'USD' } },
+    ]) {
+      expect(toSpend(bad)).toBeUndefined();
+    }
   });
 
   it('maps a plan_update items variant onto the plan event (full replacement)', () => {

@@ -288,6 +288,15 @@ describe('reducer raw notification ownership', () => {
 });
 
 describe('reducer session-level latest notifications', () => {
+  it('keeps the last family spend when a usage_update carries none', () => {
+    const spend = { amount: 12.4, budget: 60, currency: 'USD' };
+    const doc = fold([
+      { sessionUpdate: 'usage_update', used: 10, size: 100, spend },
+      { sessionUpdate: 'usage_update', used: 20, size: 100 },
+    ]);
+    expect(doc.usage).toEqual({ used: 20, size: 100, cost: null, spend });
+  });
+
   it('records usage and plan notifications as the latest of their kind', () => {
     const ru = rawNote('u1');
     const rp = rawNote('p1');
@@ -304,7 +313,7 @@ describe('reducer session-level latest notifications', () => {
       ),
       carryingRaw({ sessionUpdate: 'plan', entries: [] }, rp),
     ]);
-    expect(doc.usage).toEqual({ used: 10, size: 100, cost: { amount: 0.1, currency: 'USD' } });
+    expect(doc.usage).toEqual({ used: 10, size: 100, cost: { amount: 0.1, currency: 'USD' }, spend: null });
     expect(doc.latestNotifications.usage_update).toBe(ru);
     expect(doc.latestNotifications.plan).toBe(rp);
   });
