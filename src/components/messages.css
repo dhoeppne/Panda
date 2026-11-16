@@ -30,6 +30,20 @@
   color: var(--color-fg);
 }
 
+/* The images and files of a user message: one wrapping row after the text. */
+.user-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+.user-message-attachments .message-image {
+  margin-block: 8px 0;
+}
+.user-message-bubble > * + .user-message-attachments {
+  margin-top: 8px;
+}
+
 .message-image {
   max-height: 320px; /* max-h-80 */
   margin-block: 8px; /* my-2 */

@@ -246,6 +246,7 @@ const initialConnection: ConnectionInfo = {
 
 const initialCapabilities: AgentCapabilityInfo = {
   image: false,
+  embeddedContext: false,
   loadSession: false,
   list: false,
   resume: false,

@@ -2,18 +2,30 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, ListPlus, Paperclip, Play, SlidersHorizontal, Square, X } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import {
+  MAX_FILE_BYTES,
+  MAX_FILES,
+  MAX_MESSAGE_BYTES,
+  acceptAttribute,
+  acceptsKind,
+  badgeOf,
   buildPromptContent,
   classifyAttachments,
   fileToAttachment,
-  type ImageAttachment,
+  formatBytes,
+  kindLabel,
+  kindOf,
+  refusalText,
+  resolveMimeType,
+  type AttachmentAccept,
+  type FileAttachment,
 } from '../attachments';
 import { draftForKey, useComposerDrafts } from '../composerDrafts';
 import { queueForKey, useMessageQueue, type QueuedMessage } from '../messageQueue';
 import type {
   AcpAvailableCommand,
   AcpConfigOption,
-  AcpContentBlock,
   AcpSessionModeState,
+  AcpUserContentBlock,
 } from '../protocol/types';
 import {
   commandCompletion,
@@ -22,6 +34,7 @@ import {
   wrapIndex,
 } from '../commands';
 import { ConfigPanelCard } from './ConfigPanel';
+import { FileChip } from './FileChip';
 import { usePopoverDismiss } from './usePopoverDismiss';
 import { ContentColumn } from './ContentColumn';
 import { ModePicker } from './ModePicker';
@@ -41,33 +54,48 @@ export function isImeComposition(e: { isComposing?: boolean; keyCode?: number })
 }
 
 /**
- * The composer's image-hint decision (#214): a verdict ('available' /
- * 'unavailable') only when the foreground agent's capabilities are
- * negotiated; `undefined` (no agent, still connecting) renders no hint at
- * all — the misleading "this agent does not declare image input" line used
- * to greet a first run with zero agents.
+ * The composer's attachment-hint decision (#214): a verdict only when the
+ * foreground agent's capabilities are negotiated; `undefined` (no agent,
+ * still connecting) renders no hint at all — a "this agent does not take
+ * files" line used to greet a first run with zero agents. `images` and
+ * `files` name the one kind group the agent takes.
  */
-export function imageHintState(canAttachImages: boolean | undefined): 'available' | 'unavailable' | null {
-  if (canAttachImages === undefined) return null;
-  return canAttachImages ? 'available' : 'unavailable';
+export function attachHintState(
+  accept: AttachmentAccept | undefined,
+): 'all' | 'images' | 'files' | 'unavailable' | null {
+  if (accept === undefined) return null;
+  if (accept.image && accept.files) return 'all';
+  if (accept.image) return 'images';
+  if (accept.files) return 'files';
+  return 'unavailable';
+}
+
+/** True when the agent takes at least one kind of file. */
+function acceptsAny(accept: AttachmentAccept | undefined): accept is AttachmentAccept {
+  return accept !== undefined && (accept.image || accept.files);
 }
 
 /**
  * One line of a queued message for the queue strip: its text, flattened,
- * plus an image count when it carries images.
+ * plus a file count (images included) when it carries files.
  */
 export function queuedPreview(
   message: QueuedMessage,
-  imagesLabel: (count: number) => string,
+  filesLabel: (count: number) => string,
 ): string {
   const text = message.content
     .flatMap((block) => (block.type === 'text' ? [block.text] : []))
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
-  const images = message.content.filter((block) => block.type === 'image').length;
-  if (images === 0) return text;
-  return text === '' ? imagesLabel(images) : `${text} · ${imagesLabel(images)}`;
+  const files = message.content.filter((block) => block.type !== 'text').length;
+  if (files === 0) return text;
+  return text === '' ? filesLabel(files) : `${text} · ${filesLabel(files)}`;
+}
+
+/** True when a drag carries files (not text or a link). */
+function dragHasFiles(e: React.DragEvent): boolean {
+  return Array.from(e.dataTransfer.types).includes('Files');
 }
 
 /**
@@ -84,10 +112,10 @@ export function submitAction(input: {
   return input.canQueue ? 'queue' : 'none';
 }
 
-export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAttachImages, canStop, onStop, modes, onSetMode, commands, configOptions, onSetConfigOption, sessionKey, family }: {
+export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attachAccept, canStop, onStop, modes, onSetMode, commands, configOptions, onSetConfigOption, sessionKey, family }: {
   /** The family chip (picker in a new chat, locked label in an existing one). */
   family?: React.ReactNode;
-  onSend: (content: AcpContentBlock[]) => void;
+  onSend: (content: AcpUserContentBlock[]) => void;
   /** Sends and popovers are closed (turn running, link down, switching). */
   disabled: boolean;
   /** The text field itself is closed — everything but awaiting-approval
@@ -99,12 +127,13 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   canQueue: boolean;
   hint?: string;
   /**
-   * Image attachment verdict for the foreground agent (#214): true/false
-   * only once capabilities are negotiated; `undefined` = no agent connected
-   * (or still connecting) — the attach stays inert and NO hint renders,
-   * because a nonexistent agent cannot "fail to declare" anything.
+   * Attachment verdict for the foreground agent (#214): which kinds it
+   * takes (`image` → images, `embeddedContext` → other files), only once
+   * capabilities are negotiated; `undefined` = no agent connected (or still
+   * connecting) — the attach stays inert and NO hint renders, because a
+   * nonexistent agent cannot "fail to declare" anything.
    */
-  canAttachImages: boolean | undefined;
+  attachAccept: AttachmentAccept | undefined;
   /** True while a live turn runs — the send button becomes a stop button. */
   canStop?: boolean;
   onStop?: () => void;
@@ -125,11 +154,11 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   const draft = useComposerDrafts((s) => draftForKey(s, sessionKey));
   const { value, attachments, attachmentError } = draft;
   const queue = useMessageQueue((s) => queueForKey(s, sessionKey));
-  const setDraft = (patch: Partial<{ value: string; attachments: ImageAttachment[]; attachmentError: string | null }>) =>
+  const setDraft = (patch: Partial<{ value: string; attachments: FileAttachment[]; attachmentError: string | null }>) =>
     useComposerDrafts.getState().setDraft(sessionKey, patch);
   // Function-form attachment update reads through the store (not the render
   // closure) — addFiles resolves asynchronously, where `draft` may be stale.
-  const setAttachments = (update: (current: ImageAttachment[]) => ImageAttachment[]) => {
+  const setAttachments = (update: (current: FileAttachment[]) => FileAttachment[]) => {
     const current = useComposerDrafts.getState().drafts[sessionKey]?.attachments ?? [];
     useComposerDrafts.getState().setDraft(sessionKey, { attachments: update(current) });
   };
@@ -149,12 +178,16 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   }, [configOpen, disabled, closeConfig]);
   useEffect(closeConfig, [sessionKey]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const promptContent = buildPromptContent(attachments, value);
+  // Drag-over overlay: enter/leave fire for every child, so a depth count
+  // tells when the drag really left the card.
+  const [dragDepth, setDragDepth] = useState(0);
+  const accept: AttachmentAccept = attachAccept ?? { image: false, files: false };
+  const promptContent = buildPromptContent(attachments, value, accept);
   const action = submitAction({ hasContent: promptContent.length > 0, disabled, canQueue });
   const canSend = action === 'send';
   const queueing = canQueue && disabled;
   const stopping = canStop === true && onStop !== undefined;
-  const attachmentDisabled = inputLocked || !canAttachImages;
+  const attachmentDisabled = inputLocked || !acceptsAny(attachAccept);
   // Panel visibility derives from the text (open only while typing the
   // command name); Escape suppresses it until the input changes again.
   const commandItems = commandsDismissed || inputLocked ? null : matchCommands(commands, value);
@@ -174,16 +207,40 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   };
 
   const addFiles = async (files: File[]) => {
-    if (!canAttachImages || files.length === 0) return;
+    if (attachmentDisabled || files.length === 0) return;
     setDraft({ attachmentError: null });
     try {
       const added = await Promise.all(files.map(fileToAttachment));
       setAttachments((current) => [...current, ...added]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error('[panda/composer] failed to read image attachment', err);
-      setDraft({ attachmentError: t('composer.readImageFailed', { message }) });
+      console.error('[panda/composer] failed to read a file attachment', err);
+      setDraft({ attachmentError: t('composer.readFileFailed', { message }) });
     }
+  };
+
+  // Drag and drop: the card always takes a file drop (the browser would
+  // otherwise open the file in the tab), but adds files only when the agent
+  // takes some. A dropped file of a refused kind shows red and is not sent.
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    setDragDepth((depth) => depth + 1);
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = attachmentDisabled ? 'none' : 'copy';
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    setDragDepth((depth) => Math.max(0, depth - 1));
+  };
+  const handleDrop = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    setDragDepth(0);
+    void addFiles(Array.from(e.dataTransfer.files));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -209,17 +266,29 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
     }
   };
 
+  // Paste takes only the files the agent takes: a rich-text paste often
+  // carries an image of itself, and the text must still paste.
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!canAttachImages) return;
-    const images = Array.from(e.clipboardData.files).filter((file) =>
-      file.type.startsWith('image/'),
+    if (attachmentDisabled) return;
+    const files = Array.from(e.clipboardData.files).filter((file) =>
+      acceptsKind(kindOf(resolveMimeType(file.name, file.type)), accept),
     );
-    if (images.length === 0) return;
+    if (files.length === 0) return;
     e.preventDefault();
-    void addFiles(images);
+    void addFiles(files);
   };
 
-  const classified = classifyAttachments(attachments);
+  const classified = classifyAttachments(attachments, accept);
+  const anyRefused = classified.some((item) => item.refusal !== null);
+  const hintState = attachHintState(attachAccept);
+  const hintLimits = {
+    files: MAX_FILES,
+    fileMb: MAX_FILE_BYTES / (1024 * 1024),
+    messageMb: MAX_MESSAGE_BYTES / (1024 * 1024),
+  };
+  const dragging = dragDepth > 0 && !attachmentDisabled;
+  const removeAttachment = (id: string) =>
+    setAttachments((current) => current.filter((entry) => entry.id !== id));
 
   return (
     <ContentColumn className="composer-column">
@@ -245,7 +314,7 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
             <ol className="composer-queue-list">
               {queue.items.map((item) => {
                 const preview = queuedPreview(item, (count) =>
-                  t('composer.queuedImages', { count: String(count) }),
+                  t('composer.queuedFiles', { count: String(count) }),
                 );
                 return (
                   <li key={item.id} className="composer-queue-item">
@@ -267,8 +336,17 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
           </div>
         )}
         <div
-          className={`composer-card ${disabled ? 'composer-card--disabled' : ''}`}
+          className={`composer-card ${disabled ? 'composer-card--disabled' : ''} ${dragging ? 'composer-card--drop' : ''}`}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
+          {dragging && (
+            <div className="composer-drop-overlay" aria-hidden="true">
+              {t('composer.dropFiles')}
+            </div>
+          )}
           {commandItems && (
             <div className="composer-commands" role="listbox" aria-label={t('composer.commands')}>
               {commandItems.map((command, index) => (
@@ -299,44 +377,67 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
           )}
           {classified.length > 0 && (
             <div className="composer-attachments">
-              {classified.map((item) => (
-                <div
-                  key={item.id}
-                  className={`composer-tile ${item.error ? 'composer-tile--error' : ''}`}
-                >
+              {classified.map((item) =>
+                // Image tiles show the picture; every other file (and an
+                // image whose bytes were never read) is a chip.
+                item.kind === 'image' && item.data !== '' ? (
                   <div
-                    className={`composer-thumb ${item.error ? 'composer-thumb--error' : ''}`}
+                    key={item.id}
+                    className={`composer-tile ${item.refusal ? 'composer-tile--error' : ''}`}
                   >
-                    <img
-                      src={`data:${item.mimeType};base64,${item.data}`}
-                      alt={item.name}
-                      className="composer-thumb-img"
-                    />
+                    <div
+                      className={`composer-thumb ${item.refusal ? 'composer-thumb--error' : ''}`}
+                    >
+                      <img
+                        src={`data:${item.mimeType};base64,${item.data}`}
+                        alt={item.name}
+                        className="composer-thumb-img"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(item.id)}
+                        className="composer-remove"
+                        aria-label={t('composer.removeAttachment', { name: item.name })}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    {item.refusal && (
+                      <p className="composer-tile-error">
+                        {refusalText(item.refusal)}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <FileChip
+                    key={item.id}
+                    name={item.name}
+                    badge={badgeOf(item.name, item.kind)}
+                    sub={
+                      item.refusal
+                        ? refusalText(item.refusal)
+                        : `${kindLabel(item.mimeType)} · ${formatBytes(item.size)}`
+                    }
+                    refused={item.refusal !== null}
+                  >
                     <button
                       type="button"
-                      onClick={() =>
-                        setAttachments((current) => current.filter((entry) => entry.id !== item.id))
-                      }
-                      className="composer-remove"
+                      onClick={() => removeAttachment(item.id)}
+                      className="file-chip-remove"
                       aria-label={t('composer.removeAttachment', { name: item.name })}
                     >
                       <X size={12} />
                     </button>
-                  </div>
-                  {item.error && (
-                    <p className="composer-tile-error">
-                      {item.error}
-                    </p>
-                  )}
-                </div>
-              ))}
+                  </FileChip>
+                ),
+              )}
             </div>
           )}
           <div className="composer-row">
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={acceptAttribute(accept)}
               multiple
               className="composer-file-input"
               onChange={(e) => {
@@ -369,7 +470,7 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
                 label={t('composer.attach')}
                 isDisabled={attachmentDisabled}
                 tooltip={
-                  canAttachImages === false
+                  hintState === 'unavailable'
                     ? t('composer.attachUnavailable')
                     : disabled
                       ? t('composer.attachDisabled')
@@ -430,10 +531,16 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
         </div>
         {attachmentError ? (
           <p className="composer-hint composer-hint--danger">{attachmentError}</p>
-        ) : imageHintState(canAttachImages) === 'unavailable' ? (
+        ) : anyRefused ? (
+          <p className="composer-hint composer-hint--muted">{t('composer.refusedHint')}</p>
+        ) : hintState === 'unavailable' ? (
           <p className="composer-hint composer-hint--muted">{t('composer.attachUnavailable')}</p>
-        ) : imageHintState(canAttachImages) === 'available' ? (
-          <p className="composer-hint composer-hint--muted">{t('composer.hintImages')}</p>
+        ) : hintState === 'all' ? (
+          <p className="composer-hint composer-hint--muted">{t('composer.hintAll', hintLimits)}</p>
+        ) : hintState === 'images' ? (
+          <p className="composer-hint composer-hint--muted">{t('composer.hintImagesOnly', hintLimits)}</p>
+        ) : hintState === 'files' ? (
+          <p className="composer-hint composer-hint--muted">{t('composer.hintFilesOnly', hintLimits)}</p>
         ) : null}
     </ContentColumn>
   );

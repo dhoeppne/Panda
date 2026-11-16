@@ -10,6 +10,7 @@
 import type {
   AcpContentBlock,
   AcpSessionLevelKind,
+  AcpUserContentBlock,
   AcpSessionUpdate,
   Block,
   PermissionRequest,
@@ -385,7 +386,7 @@ function appendBlock(doc: SessionDocument, block: Block, newTurn: boolean): Sess
  */
 function appendUserMessage(
   doc: SessionDocument,
-  content: AcpContentBlock[],
+  content: AcpUserContentBlock[],
   raw: SessionNotification | undefined,
   messageId?: string,
   optimistic?: true,

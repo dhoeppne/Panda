@@ -133,3 +133,91 @@ describe('EchoReconciler (echo window state machine)', () => {
     expect(r.settle()).toEqual([]);
   });
 });
+
+describe('echo of a prompt with files', () => {
+  // What Panda sends: files first, then the text.
+  const sent = [
+    { type: 'image' as const, data: 'c2VudA==', mimeType: 'image/png', uri: 'attachment:shot.png' },
+    {
+      type: 'resource' as const,
+      resource: { uri: 'attachment:lease.pdf', mimeType: 'application/pdf', blob: 'cGRm' },
+    },
+    text('compare'),
+  ];
+  const chunk = (content: object): SessionNotification =>
+    note({ sessionUpdate: 'user_message_chunk', content });
+  // The creche facade replay: the text, then a link per file, then each
+  // image the workspace holds (rebuilt bytes, same URI).
+  const replayText = chunk(text('compare'));
+  const shotLink = chunk({ type: 'resource_link', uri: 'attachment:shot.png', name: 'shot.png', mimeType: 'image/png', size: 4 });
+  const shotImage = chunk({ type: 'image', data: 'cmVidWlsdA==', mimeType: 'image/png', uri: 'attachment:shot.png' });
+  const leaseLink = chunk({ type: 'resource_link', uri: 'attachment:lease.pdf', name: 'lease.pdf', mimeType: 'application/pdf', size: 3 });
+
+  it('confirms a verbatim echo at once', () => {
+    const r = new EchoReconciler(sent);
+    r.feed(chunk(sent[0]!));
+    r.feed(chunk(sent[1]!));
+    const confirmed = r.feed(chunk(sent[2]!));
+    expect(confirmed.events[0]).toMatchObject({ sessionUpdate: 'user_message_confirmed' });
+  });
+
+  it('holds the facade replay shape, then confirms it when the echo window closes', () => {
+    const r = new EchoReconciler(sent);
+    for (const n of [replayText, shotLink, leaseLink]) {
+      expect(r.feed(n)).toEqual({ consumed: true, events: [] });
+    }
+    // The image block of an image already linked must not render twice.
+    expect(r.feed(shotImage)).toEqual({ consumed: true, events: [] });
+    const boundary = r.feed(agentChunk('reading'));
+    expect(boundary.consumed).toBe(false);
+    expect(boundary.events).toEqual([
+      {
+        sessionUpdate: 'user_message_confirmed',
+        protocolMessageId: undefined,
+        notifications: [replayText, shotLink, leaseLink, shotImage],
+      },
+    ]);
+  });
+
+  it('confirms a complete replay at settle', () => {
+    const r = new EchoReconciler(sent);
+    for (const n of [replayText, shotLink, shotImage, leaseLink]) r.feed(n);
+    expect(r.settle()).toEqual([
+      expect.objectContaining({ sessionUpdate: 'user_message_confirmed' }),
+    ]);
+  });
+
+  it('flushes a replay that misses a file', () => {
+    const r = new EchoReconciler(sent);
+    r.feed(replayText);
+    r.feed(shotLink);
+    expect(r.settle()).toEqual([...toAcpUpdates(replayText), ...toAcpUpdates(shotLink)]);
+  });
+
+  it('flushes an echo that names a file Panda did not send', () => {
+    const other = chunk({ type: 'resource_link', uri: 'attachment:lease-1.pdf', name: 'lease-1.pdf' });
+    const r = new EchoReconciler(sent);
+    r.feed(replayText);
+    const flush = r.feed(other);
+    expect(flush.consumed).toBe(true);
+    expect(flush.events).toEqual([...toAcpUpdates(replayText), ...toAcpUpdates(other)]);
+  });
+
+  it('confirms a complete replay and lets the next prompt through', () => {
+    const r = new EchoReconciler(sent);
+    for (const n of [replayText, shotLink, leaseLink]) r.feed(n);
+    const next = chunk(text('and now'));
+    const result = r.feed(next);
+    expect(result.consumed).toBe(false);
+    expect(result.events).toEqual([expect.objectContaining({ sessionUpdate: 'user_message_confirmed' })]);
+  });
+
+  it('relation: complete for the replay shape, different for other text', () => {
+    const replay = [replayText, shotLink, leaseLink].map(
+      (n) => (n.update as { content: ContentBlock }).content,
+    );
+    expect(echoRelation(sent, replay)).toBe('complete');
+    expect(echoRelation(sent, replay.slice(0, 2))).toBe('prefix');
+    expect(echoRelation(sent, [text('other') as ContentBlock])).toBe('different');
+  });
+});

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ImageAttachment } from './attachments';
+import type { FileAttachment } from './attachments';
 
 /**
  * Composer drafts, keyed by foreground session (bug hunt #15): the composer
@@ -12,7 +12,7 @@ import type { ImageAttachment } from './attachments';
 
 export type ComposerDraft = {
   value: string;
-  attachments: ImageAttachment[];
+  attachments: FileAttachment[];
   attachmentError: string | null;
 };
 

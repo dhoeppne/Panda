@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
-import type { AcpContentBlock, SessionDocument } from './protocol/types';
+import type { AcpUserContentBlock, SessionDocument } from './protocol/types';
 
 /**
  * Queued messages, keyed like composer drafts (one queue per foreground
@@ -20,7 +20,7 @@ import type { AcpContentBlock, SessionDocument } from './protocol/types';
  * clears the pause; removing items never does.
  */
 
-export type QueuedMessage = { id: string; content: AcpContentBlock[] };
+export type QueuedMessage = { id: string; content: AcpUserContentBlock[] };
 
 export type MessageQueue = { items: QueuedMessage[]; paused: boolean };
 
@@ -28,7 +28,7 @@ const EMPTY_QUEUE: MessageQueue = { items: [], paused: false };
 
 interface MessageQueueState {
   queues: Record<string, MessageQueue>;
-  enqueue: (key: string, content: AcpContentBlock[]) => void;
+  enqueue: (key: string, content: AcpUserContentBlock[]) => void;
   remove: (key: string, id: string) => void;
   /** Removes and returns the head, or null when the queue is empty. */
   takeNext: (key: string) => QueuedMessage | null;
@@ -149,7 +149,7 @@ export function useMessageQueueDrain({
   busy: boolean;
   canSendNow: boolean;
   stopped: boolean;
-  send: (content: AcpContentBlock[]) => void | Promise<void>;
+  send: (content: AcpUserContentBlock[]) => void | Promise<void>;
 }): void {
   const queue = useMessageQueue((s) => queueForKey(s, sessionKey));
   const seen = useRef<{ key: string; busy: boolean } | null>(null);

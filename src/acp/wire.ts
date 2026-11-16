@@ -33,6 +33,7 @@ import {
   type AcpSpend,
   type AcpToolCallContent,
   type AcpToolCallLocation,
+  type AcpUserContentBlock,
   type ElicitationRequest,
   type PermissionRequest,
 } from '../protocol/types';
@@ -142,9 +143,36 @@ export function removeSdkStrictSessionUpdateRouter(app: ClientApp): void {
 
 export function toContentBlock(block: ContentBlock, context: string): AcpContentBlock | null {
   if (block.type === 'text') return { type: 'text', text: block.text };
-  if (block.type === 'image') return { type: 'image', data: block.data, mimeType: block.mimeType };
+  if (block.type === 'image') {
+    return block.uri != null
+      ? { type: 'image', data: block.data, mimeType: block.mimeType, uri: block.uri }
+      : { type: 'image', data: block.data, mimeType: block.mimeType };
+  }
   warn(`${context}: content block "${block.type}" not supported yet — preserved as raw only`);
   return null;
+}
+
+/**
+ * User-side content: text and images as `toContentBlock`, plus the files of
+ * a prompt — a `resource_link` (a replayed attachment) and a blob `resource`
+ * (an agent that echoes what Panda sent). A text resource and audio stay
+ * unsupported.
+ */
+export function toUserContentBlock(block: ContentBlock, context: string): AcpUserContentBlock | null {
+  if (block.type === 'resource_link') {
+    return {
+      type: 'resource_link',
+      uri: block.uri,
+      name: block.name,
+      ...(block.mimeType != null && { mimeType: block.mimeType }),
+      ...(block.size != null && { size: Number(block.size) }),
+    };
+  }
+  if (block.type === 'resource' && typeof block.resource === 'object' && 'blob' in block.resource) {
+    const { uri, mimeType, blob } = block.resource;
+    return { type: 'resource', resource: { uri, blob, ...(mimeType != null && { mimeType }) } };
+  }
+  return toContentBlock(block, context);
 }
 
 /** Shared JSON-object guard for `rawInput`/`rawOutput`: the protocol types
@@ -225,7 +253,7 @@ export function toAcpUpdates(notification: SessionNotification): AcpSessionUpdat
   const raw = notification;
   switch (update.sessionUpdate) {
     case 'user_message_chunk': {
-      const block = toContentBlock(update.content, 'user_message_chunk');
+      const block = toUserContentBlock(update.content, 'user_message_chunk');
       // messageId rides along (agent_message_chunk-style): the reducer needs
       // it to keep two replayed prompts apart when nothing else separates
       // them (bug hunt #13).

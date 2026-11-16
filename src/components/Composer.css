@@ -305,3 +305,24 @@
   font-size: var(--panda-size-micro);
   color: var(--color-faint);
 }
+
+/* -- drag and drop -------------------------------------------------------- */
+/* The card is the drop target; the overlay covers it while files hover. */
+.composer-card--drop {
+  border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+
+.composer-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--color-accent);
+  border-radius: 16px; /* the card's radius */
+  background: color-mix(in oklab, var(--color-surface) 82%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+  /* Child enter/leave events would flicker the overlay; the card owns them. */
+  pointer-events: none;
+}

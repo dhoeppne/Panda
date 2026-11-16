@@ -19,7 +19,7 @@ import { WORKSPACE_NONE_CWD } from '../workspace';
 import type { SessionEntry } from '../store';
 import { applyUpdate, emptySession } from '../protocol/reducer';
 import type {
-  AcpContentBlock,
+  AcpUserContentBlock,
   AcpSessionUpdate,
   PermissionRequest,
   SessionStatus,
@@ -276,7 +276,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
 
   it('声明图片与 load 能力、全套 session 管理能力,并支持模式切换', async () => {
     expect(records.capabilities).toEqual([
-      { image: true, loadSession: true, list: true, resume: true, delete: true, rewind: false },
+      { image: true, embeddedContext: false, loadSession: true, list: true, resume: true, delete: true, rewind: false },
     ]);
 
     const connection = client({ name: 'panda-e2e-mode-check' }).connect(
@@ -321,7 +321,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
   /** Folds a slice of the recorded update stream into a session document. */
   const foldSlice = (from: number) =>
     records.updates.slice(from).reduce((doc, update) => applyUpdate(doc, update), emptySession());
-  const userBlocks = (from: number): AcpContentBlock[][] =>
+  const userBlocks = (from: number): AcpUserContentBlock[][] =>
     foldSlice(from).turns.flatMap((turn) =>
       turn.blocks.flatMap((block) => (block.kind === 'user_message' ? [block.content] : [])),
     );

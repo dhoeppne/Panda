@@ -52,7 +52,7 @@ type Records = {
   connected: { agentName: string; protocolVersion: number }[];
   sessionIds: string[];
   disconnected: (string | null)[];
-  capabilities: { image: boolean; loadSession: boolean; list: boolean; resume: boolean; delete: boolean; rewind: boolean }[];
+  capabilities: { image: boolean; embeddedContext: boolean; loadSession: boolean; list: boolean; resume: boolean; delete: boolean; rewind: boolean }[];
   sessions: { sessionId: string; cwd: string; title: string | null; updatedAt: string | null }[][];
   sessionInfos: { sessionId: string; title?: string | null; updatedAt?: string | null }[];
   replays: number[];
@@ -104,7 +104,7 @@ type Harness = Records & {
 type FakeAgentOptions = {
   protocolVersion?: number;
   /** Capability gates advertised at initialize. */
-  capabilities?: { image?: boolean; loadSession?: boolean; list?: boolean; resume?: boolean; delete?: boolean; close?: boolean; rewind?: boolean };
+  capabilities?: { image?: boolean; embeddedContext?: boolean; loadSession?: boolean; list?: boolean; resume?: boolean; delete?: boolean; close?: boolean; rewind?: boolean };
   /** The creche rewind answers with an error instead of {}. */
   failRewind?: boolean;
   /** Entries returned by session/list. */
@@ -323,7 +323,14 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
         agentInfo: { name: 'fake-agent', title: 'Fake Agent', version: '0.0.0' },
         agentCapabilities: {
           ...(caps.loadSession ? { loadSession: true } : {}),
-          ...(caps.image ? { promptCapabilities: { image: true } } : {}),
+          ...(caps.image || caps.embeddedContext
+            ? {
+                promptCapabilities: {
+                  ...(caps.image ? { image: true } : {}),
+                  ...(caps.embeddedContext ? { embeddedContext: true } : {}),
+                },
+              }
+            : {}),
           ...(Object.keys(sessionCaps).length > 0 ? { sessionCapabilities: sessionCaps } : {}),
           ...(opts.authLogout ? { auth: { logout: {} } } : {}),
           ...(caps.rewind ? { _meta: { [REWIND_CAPABILITY]: {} } } : {}),
@@ -482,7 +489,7 @@ describe('LiveAcpClient', () => {
     });
 
     expect(h.capabilities).toEqual([
-      { image: true, loadSession: false, list: false, resume: false, delete: false, rewind: false },
+      { image: true, embeddedContext: false, loadSession: false, list: false, resume: false, delete: false, rewind: false },
     ]);
 
     const content = [
@@ -528,6 +535,42 @@ describe('LiveAcpClient', () => {
     const h = await setup({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
     await h.acpClient.send([{ type: 'text', text: 'hi' }]);
     expect(h.updates.filter((u) => u.sessionUpdate === 'turn_notice')).toEqual([]);
+    h.closeAll();
+  });
+
+  it('reads promptCapabilities.embeddedContext and sends file resources', async () => {
+    const prompts: PromptRequest['prompt'][] = [];
+    const h = await setup({
+      capabilities: { embeddedContext: true },
+      onPrompt: async (ctx) => {
+        prompts.push(ctx.params.prompt);
+        return { stopReason: 'end_turn' };
+      },
+    });
+    expect(h.capabilities[0]).toMatchObject({ image: false, embeddedContext: true });
+
+    const content = [
+      {
+        type: 'resource' as const,
+        resource: { uri: 'attachment:notes.md', mimeType: 'text/markdown', blob: 'aGk=' },
+      },
+      { type: 'text' as const, text: 'summarize' },
+    ];
+    await h.acpClient.send(content);
+
+    expect(prompts).toEqual([content]);
+    expect(h.updates[0]).toEqual({ sessionUpdate: 'user_message', content, optimistic: true });
+    h.closeAll();
+  });
+
+  it('refuses to send a file resource when the agent omits embeddedContext', async () => {
+    const h = await setup({ capabilities: { image: true } });
+    await expect(
+      h.acpClient.send([
+        { type: 'resource', resource: { uri: 'attachment:a.pdf', mimeType: 'application/pdf', blob: 'aGk=' } },
+      ]),
+    ).rejects.toThrow('the agent did not declare promptCapabilities.embeddedContext');
+    expect(h.updates).toEqual([]);
     h.closeAll();
   });
 
@@ -1256,7 +1299,7 @@ describe('LiveAcpClient', () => {
       ],
     });
     expect(h.capabilities).toEqual([
-      { image: false, loadSession: true, list: true, resume: true, delete: true, rewind: false },
+      { image: false, embeddedContext: false, loadSession: true, list: true, resume: true, delete: true, rewind: false },
     ]);
     expect(h.sessions).toEqual([
       [
