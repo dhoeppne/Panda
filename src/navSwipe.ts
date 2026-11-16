@@ -11,7 +11,10 @@
  * The wiring in App.tsx owns the events and writes the geometry to CSS
  * custom properties on the shell. That split is deliberate: a drag must
  * never re-render the app, because the message stream is virtualized and a
- * state update per pointermove would fight Virtuoso.
+ * state update per pointermove would fight Virtuoso. The sequencing lives
+ * here too (beginDrawerDrag, drawerDragOnMove, drawerDragOnRelease), so
+ * App.tsx is only an adapter: read the event, ask this module, write the
+ * answer to the DOM.
  *
  * Two surfaces pan. Closed: the page's left edge only, and never out of a
  * control's or a text field's own gesture. Open: the scrim and the drawer,
@@ -150,4 +153,100 @@ export function settleDrawer(input: { offset: number; velocity: number; width: n
   if (input.velocity >= FLICK_VELOCITY) return 'open';
   if (input.velocity <= -FLICK_VELOCITY) return 'closed';
   return input.offset >= input.width / 2 ? 'open' : 'closed';
+}
+
+// ---------------------------------------------------------------------------
+// The sequence: one drag, step by step
+// ---------------------------------------------------------------------------
+
+/** One drag in flight. `null` at the call site means no drag at all. */
+export type DrawerDrag = {
+  /** The pointer this drag belongs to, for the caller's own matching. */
+  pointerId: number;
+  startX: number;
+  startY: number;
+  /** Whether the drawer was open when the drag began. */
+  open: boolean;
+  /** The drawer's rendered width, read once when the drag began. */
+  width: number;
+  axis: SwipeAxis;
+  /** Where the drawer sits now, in px from closed. */
+  offset: number;
+  /** Pointer samples, for the release velocity. */
+  samples: DragSample[];
+};
+
+/** A drag that has just begun. The drawer starts where it already is. */
+export function beginDrawerDrag(input: {
+  pointerId: number;
+  x: number;
+  y: number;
+  at: number;
+  open: boolean;
+  width: number;
+}): DrawerDrag {
+  return {
+    pointerId: input.pointerId,
+    startX: input.x,
+    startY: input.y,
+    open: input.open,
+    width: input.width,
+    axis: 'undecided',
+    offset: input.open ? input.width : 0,
+    samples: [{ x: input.x, at: input.at }],
+  };
+}
+
+/** What one pointermove does to a drag in flight. */
+export type DragMove =
+  /** Too little travel to commit: the drawer does not move. */
+  | { kind: 'hold' }
+  /** The gesture belongs to the list underneath: forget the drag. */
+  | { kind: 'handoff' }
+  /** The drawer pans, `axisJustLocked` on the move that committed it. */
+  | { kind: 'pan'; drag: DrawerDrag; axisJustLocked: boolean };
+
+/**
+ * Advance a drag by one pointermove. The axis is decided once and kept: a
+ * committed drag follows the pointer horizontally even if the finger turns
+ * vertical, and an undecided one holds still.
+ */
+export function drawerDragOnMove(drag: DrawerDrag, x: number, y: number, at: number): DragMove {
+  let axis = drag.axis;
+  let axisJustLocked = false;
+  if (axis === 'undecided') {
+    axis = swipeAxis(x - drag.startX, y - drag.startY);
+    if (axis === 'undecided') return { kind: 'hold' };
+    if (axis === 'vertical') return { kind: 'handoff' };
+    axisJustLocked = true;
+  }
+  return {
+    kind: 'pan',
+    axisJustLocked,
+    drag: {
+      ...drag,
+      axis,
+      offset: drawerOffset({ startX: drag.startX, x, width: drag.width, open: drag.open, axis }),
+      samples: [...drag.samples, { x, at }],
+    },
+  };
+}
+
+/** What a pointerup or pointercancel does to a drag in flight. */
+export type DragRelease =
+  /** The drag never panned: the drawer is where it was, nothing to undo. */
+  | { kind: 'hold' }
+  /** The drawer settles, open or closed. */
+  | { kind: 'settle'; open: boolean };
+
+/**
+ * End a drag. A cancelled drag (the browser took the gesture) puts the
+ * drawer back where it started; a finished one settles on the flick or the
+ * halfway point.
+ */
+export function drawerDragOnRelease(drag: DrawerDrag, at: number, cancelled: boolean): DragRelease {
+  if (drag.axis !== 'horizontal') return { kind: 'hold' };
+  if (cancelled) return { kind: 'settle', open: drag.open };
+  const velocity = releaseVelocity(drag.samples, at);
+  return { kind: 'settle', open: settleDrawer({ offset: drag.offset, velocity, width: drag.width }) === 'open' };
 }
