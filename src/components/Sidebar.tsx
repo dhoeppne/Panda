@@ -1,105 +1,337 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useImperativeAlertDialog } from '@astryxdesign/core/AlertDialog';
-import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
-import { LayoutContent } from '@astryxdesign/core/Layout';
-import { TextInput } from '@astryxdesign/core/TextInput';
-import pandaBadge from '../assets/brand/panda-badge.png';
-import { Button } from '@astryxdesign/core/Button';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { StatusDot } from '@astryxdesign/core/StatusDot';
 import {
-  Bot,
-  BookmarkPlus,
-  MessagesSquare,
-  PlugZap,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
   Plus,
+  Search,
   Settings,
+  SquarePen,
   Trash2,
-  Unplug,
   X,
 } from 'lucide-react';
-import {
-  orderedSessions,
-  usePanda,
-  useConnectionOrder,
-  type SessionEntry,
-} from '../store';
+import pandaBadge from '../assets/brand/panda-badge.png';
+import { usePanda, type SessionEntry } from '../store';
 import type { SessionDocument } from '../protocol/types';
-import { useConnectionLifecycle } from '../projector/hooks';
-import { isLinkUp, type AttentionReason, type ConnectionPhase } from '../projector/connectionLifecycle';
-import { isDirectConnectionId, reconcileProfileSlots } from '../liveConnections';
+import { connectionLifecycle, isLinkUp, type ConnectionPhase } from '../projector/connectionLifecycle';
+import { reconcileProfileSlots } from '../liveConnections';
 import { effectiveCapability, PANDA_HOST_CAPABILITIES } from '../capabilities';
 import { useI18n } from '../i18n/context';
 import { formatRelativeTime } from '../relativeTime';
 import type { AgentProfile } from '../profiles';
-import { loadProfiles, newProfileId, profileEndpoint, saveProfiles, subscribeProfiles } from '../profiles';
 import { navigate, useHashRoute } from '../routes';
 import { notifyUser } from '../userNotice';
-import { cwdToWorkspace, workspaceLabel } from '../workspace';
-import { useNewSessionIntent } from '../newSessionIntent';
+import { workspaceLabel } from '../workspace';
+import { useNewChat, useProfiles } from '../newChat';
+import {
+  addFolder,
+  addSection,
+  buildNavTree,
+  forgetChat,
+  loadNavLayout,
+  navKey,
+  newNavId,
+  placeChat,
+  removeFolder,
+  removeSection,
+  renameFolder,
+  renameSection,
+  saveNavLayout,
+  setChatTitle,
+  subscribeNavLayout,
+  toggleFolder,
+  toggleSection,
+  type NavLayout,
+  type NavPlacement,
+  type NavRow,
+  type RecencyBucket,
+} from '../navLayout';
 import type { LiveSessionFacade } from '../useLiveSession';
-import { NewSessionDialog } from './NewSessionDialog';
 import { SettingsSideNav, type SettingsSectionId } from './SettingsPage';
+import { FamilyBadge } from './FamilyPicker';
 import './Sidebar.css';
 
+/** One chat of the merged list, with what the row needs to render. */
+type ChatRow = NavRow & { entry: SessionEntry; familyName: string };
+
+/** The persisted layout, kept current with storage. Writes that storage
+ * rejects tell the user; the in-memory view still moves. */
+function useNavLayout(): [NavLayout, (next: NavLayout) => void] {
+  const [layout, setLayout] = useState<NavLayout>(() => loadNavLayout());
+  const { t } = useI18n();
+  useEffect(() => subscribeNavLayout(setLayout), []);
+  const commit = useCallback(
+    (next: NavLayout) => {
+      setLayout(next);
+      if (!saveNavLayout(next)) notifyUser('error', t('side.notice.layoutSaveFailed'));
+    },
+    [t],
+  );
+  return [layout, commit];
+}
+
 /**
- * Session-centered sidebar (IA refactor phase 3): every Agent 配置 renders as
- * a section — online ones with live sessions, offline ones as seeded
- * disconnected slots carrying the endpoint's remembered sessions (历史可见,
- * click = 连接, #221). Connection management lives in the settings page; the
- * sidebar entry points are 新建会话 (picker dialog) and 添加 agent (settings).
- * 分组与会话行都按最后活动时间排 (#175), 切换不移动任何位置; each group row
- * subscribes narrowly to its own slot so a streaming connection only
- * re-renders its own group.
+ * The merged chat list: every session of every family connection, keyed by
+ * endpoint + session id. The selector returns slot ids, endpoints and the
+ * session-list refs only, so streaming document updates do not re-render
+ * the whole list (useShallow compares element by element).
+ */
+function useChatRows(profiles: AgentProfile[]): ChatRow[] {
+  const flat = usePanda(
+    useShallow((s) =>
+      Object.entries(s.connections).flatMap(([id, slot]) => [id, slot.connection.url, slot.sessions] as const),
+    ),
+  );
+  return useMemo(() => {
+    const rows: ChatRow[] = [];
+    for (let index = 0; index < flat.length; index += 3) {
+      const connectionId = flat[index] as string;
+      const endpoint = flat[index + 1] as string | null;
+      const sessions = flat[index + 2] as SessionEntry[];
+      if (!endpoint) continue;
+      const familyName = profiles.find((profile) => profile.id === connectionId)?.name ?? endpoint;
+      for (const entry of sessions) {
+        rows.push({
+          key: navKey(endpoint, entry.sessionId),
+          connectionId,
+          sessionId: entry.sessionId,
+          cwd: entry.cwd,
+          updatedAt: entry.updatedAt,
+          entry,
+          familyName,
+        });
+      }
+    }
+    return rows;
+  }, [flat, profiles]);
+}
+
+/** What the sidebar is dragging: a chat's layout key. */
+const DRAG_TYPE = 'application/x-panda-chat';
+
+/**
+ * Session-centered sidebar (navigation redesign): New chat, search, then
+ * one list of every family's chats — Pinned, the user's sections (folders,
+ * then loose chats) and Recents by date. Each row carries its family's
+ * badge. The footer shows one status dot per family and the settings gear.
  */
 export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSelectSettingsSection }: {
   live: LiveSessionFacade;
   mobileOpen: boolean;
   onMobileClose(): void;
-  /** Which settings section is showing (#117) — lifted state so it survives
-   * route flips; the settings-route nav and the add-agent shortcut both
-   * write through onSelectSettingsSection. */
+  /** Which settings section is showing (#117). */
   settingsSection: SettingsSectionId;
   onSelectSettingsSection(id: SettingsSectionId): void;
 }) {
   const { t } = useI18n();
-  // Route-aware since #113: settings shares the shell, so the sidebar must
-  // reflect (gear highlight + toggle-back) and respect it (any session action
-  // below returns to the session view instead of changing nothing).
   const onSettings = useHashRoute() === 'settings';
   const exitSettings = () => {
     if (onSettings) navigate('main');
   };
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
-  // The preselect the dialog should highlight (#221): set together with the
-  // open flag by the settings page's post-create CTA, cleared when the
-  // dialog closes or its pick starts a session.
-  const [newSessionHighlight, setNewSessionHighlight] = useState<string | null>(null);
-  // The settings page's「开始会话」CTA deep-links here (#221): consume the
-  // one-shot intent by opening the picker with the new profile highlighted.
-  const intentProfileId = useNewSessionIntent((s) => s.profileId);
-  useEffect(() => {
-    if (intentProfileId === null) return;
-    setNewSessionHighlight(intentProfileId);
-    setNewSessionOpen(true);
-    useNewSessionIntent.getState().consume();
-  }, [intentProfileId]);
-  const orderedIds = useConnectionOrder();
-  const [profiles, setProfiles] = useState<AgentProfile[]>(() => loadProfiles());
-  // The settings page also writes profiles (CRUD) — storage is the single
-  // source, the subscription keeps this copy from diverging.
-  useEffect(() => subscribeProfiles(setProfiles), []);
+  const profiles = useProfiles();
+  const familyNames = useMemo(() => profiles.map((profile) => profile.name), [profiles]);
 
-  // Offline agent sections: the store's connection topology follows the
-  // profile list (seed + prune) — the policy lives in liveConnections (#61).
+  // Topology follows the profile list (seed + prune, #61); every family then
+  // connects once in the background so its chats join the merged list.
   useEffect(() => {
     reconcileProfileSlots(profiles);
-  }, [profiles]);
+    live.connectInBackground(profiles);
+  }, [profiles, live]);
 
-  const activeConnectionId = usePanda((s) => s.activeConnectionId);
-  const footerAgent = usePanda(
-    (s) => s.connections[s.activeConnectionId ?? '']?.connection.agentName ?? null,
+  const [layout, commit] = useNavLayout();
+  const rows = useChatRows(profiles);
+  const [search, setSearch] = useState('');
+  const [adding, setAdding] = useState<{ kind: 'section' } | { kind: 'folder'; sectionId: string } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const newChatOpen = useNewChat((s) => s.open);
+
+  const closeNav = () => {
+    exitSettings();
+    onMobileClose();
+  };
+
+  const startNewChat = () => {
+    useNewChat.getState().start();
+    closeNav();
+  };
+
+  const rowProps = {
+    layout,
+    commit,
+    live,
+    familyNames,
+    newChatOpen,
+    renaming,
+    setRenaming,
+    onOpened: closeNav,
+  };
+
+  const query = search.trim().toLowerCase();
+  const tree = useMemo(() => buildNavTree(rows, layout, new Date()), [rows, layout]);
+  const hits = useMemo(() => {
+    if (!query) return [];
+    const docs = usePanda.getState().connections;
+    return rows
+      .filter((row) => chatLabel(row, layout, docs[row.connectionId]?.docs[row.sessionId]).toLowerCase().includes(query))
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+  }, [query, rows, layout]);
+
+  const commitNewName = (name: string) => {
+    const trimmed = name.trim();
+    if (adding && trimmed) {
+      commit(
+        adding.kind === 'section'
+          ? addSection(layout, newNavId(), trimmed)
+          : addFolder(layout, adding.sectionId, newNavId(), trimmed),
+      );
+    }
+    setAdding(null);
+  };
+
+  const list = (
+    <>
+      {query ? (
+        <NavGroup label={t('side.results', { n: hits.length })}>
+          {hits.length > 0
+            ? hits.map((row) => <ChatRowItem key={row.key} row={row} {...rowProps} />)
+            : <div className="sidebar-empty">{t('side.noMatches')}</div>}
+        </NavGroup>
+      ) : rows.length === 0 ? (
+        <NavGroup label={t('side.recents')}>
+          <div className="sidebar-empty">
+            {profiles.length === 0 ? t('side.noFamilies') : t('side.noChats')}
+          </div>
+        </NavGroup>
+      ) : (
+        <>
+          {tree.pinned.length > 0 && (
+            <NavGroup
+              label={t('side.pinned')}
+              collapsed={layout.pinnedCollapsed}
+              onToggle={() => commit({ ...layout, pinnedCollapsed: !layout.pinnedCollapsed })}
+              drop={{ placement: { kind: 'pinned' }, layout, commit }}
+            >
+              {tree.pinned.map((row) => <ChatRowItem key={row.key} row={row} {...rowProps} />)}
+            </NavGroup>
+          )}
+          {tree.sections.map(({ section, folders, loose }) => (
+            <NavGroup
+              key={section.id}
+              label={section.name}
+              collapsed={section.collapsed}
+              onToggle={() => commit(toggleSection(layout, section.id))}
+              drop={{ placement: { kind: 'section', sectionId: section.id, folderId: null }, layout, commit }}
+              renaming={renaming === `section:${section.id}`}
+              onRename={(name) => {
+                if (name.trim()) commit(renameSection(layout, section.id, name.trim()));
+                setRenaming(null);
+              }}
+              actions={
+                <>
+                  <IconButton
+                    variant="ghost"
+                    size="sm"
+                    icon={<FolderPlus size={12} />}
+                    label={t('side.newFolderIn', { name: section.name })}
+                    tooltip={t('side.newFolder')}
+                    clickAction={() => {
+                      if (section.collapsed) commit(toggleSection(layout, section.id));
+                      setAdding({ kind: 'folder', sectionId: section.id });
+                    }}
+                  />
+                  <NavMenu label={t('side.sectionActions')}>
+                    {(close) => (
+                      <>
+                        <MenuItem icon={<FolderPlus size={14} />} onSelect={() => {
+                          close();
+                          if (section.collapsed) commit(toggleSection(layout, section.id));
+                          setAdding({ kind: 'folder', sectionId: section.id });
+                        }}>{t('side.newFolder')}</MenuItem>
+                        <MenuItem icon={<Pencil size={14} />} onSelect={() => {
+                          close();
+                          setRenaming(`section:${section.id}`);
+                        }}>{t('side.renameSection')}</MenuItem>
+                        <hr className="nav-menu-sep" />
+                        <MenuItem icon={<Trash2 size={14} />} danger hint={t('side.deleteSectionHint')} onSelect={() => {
+                          close();
+                          commit(removeSection(layout, section.id));
+                        }}>{t('side.deleteSection')}</MenuItem>
+                      </>
+                    )}
+                  </NavMenu>
+                </>
+              }
+            >
+              {folders.map(({ folder, rows: folderRows }) => (
+                <FolderBlock
+                  key={folder.id}
+                  name={folder.name}
+                  count={folderRows.length}
+                  collapsed={folder.collapsed}
+                  onToggle={() => commit(toggleFolder(layout, section.id, folder.id))}
+                  drop={{ placement: { kind: 'section', sectionId: section.id, folderId: folder.id }, layout, commit }}
+                  renaming={renaming === `folder:${folder.id}`}
+                  onRename={(name) => {
+                    if (name.trim()) commit(renameFolder(layout, section.id, folder.id, name.trim()));
+                    setRenaming(null);
+                  }}
+                  onStartRename={() => setRenaming(`folder:${folder.id}`)}
+                  onDelete={() => commit(removeFolder(layout, section.id, folder.id))}
+                >
+                  {folderRows.map((row) => <ChatRowItem key={row.key} row={row} {...rowProps} />)}
+                </FolderBlock>
+              ))}
+              {adding?.kind === 'folder' && adding.sectionId === section.id && (
+                <InlineName
+                  icon={<Folder size={14} className="sidebar-icon-faint" />}
+                  placeholder={t('side.folderName')}
+                  onDone={commitNewName}
+                />
+              )}
+              {loose.map((row) => <ChatRowItem key={row.key} row={row} {...rowProps} />)}
+              {folders.length === 0 && loose.length === 0 && !(adding?.kind === 'folder' && adding.sectionId === section.id) && (
+                <div className="sidebar-empty">{t('side.dropHere')}</div>
+              )}
+            </NavGroup>
+          ))}
+          {adding?.kind === 'section' ? (
+            <InlineName placeholder={t('side.sectionName')} onDone={commitNewName} />
+          ) : (
+            <button type="button" className="nav-add-section" onClick={() => setAdding({ kind: 'section' })}>
+              <Plus size={13} />
+              {t('side.newSection')}
+            </button>
+          )}
+          <NavGroup
+            label={t('side.recents')}
+            collapsed={layout.recentsCollapsed}
+            onToggle={() => commit({ ...layout, recentsCollapsed: !layout.recentsCollapsed })}
+            drop={{ placement: null, layout, commit }}
+          >
+            {tree.recents.length > 0
+              ? tree.recents.map(({ bucket, rows: bucketRows }) => (
+                  <div key={bucket} className="nav-bucket-group">
+                    <div className="nav-bucket">{t(BUCKET_LABELS[bucket])}</div>
+                    {bucketRows.map((row) => <ChatRowItem key={row.key} row={row} {...rowProps} />)}
+                  </div>
+                ))
+              : <div className="sidebar-empty">{t('side.allFiled')}</div>}
+          </NavGroup>
+        </>
+      )}
+    </>
   );
 
   return (
@@ -131,139 +363,564 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
         />
       ) : (
         <>
-          <div className="sidebar-sessions-head">
-            <span className="sidebar-label">
-              {t('side.sessions')}
-            </span>
-            <IconButton
-              variant="ghost"
-              size="sm"
-              icon={<Plus size={13} />}
-              label={t('side.newSession')}
-              tooltip={t('side.newSessionTooltip')}
-              clickAction={() => setNewSessionOpen(true)}
-            />
+          <div className="nav-top">
+            <button
+              type="button"
+              className={`nav-new-chat ${newChatOpen ? 'nav-new-chat--active' : ''}`}
+              onClick={startNewChat}
+              disabled={profiles.length === 0}
+            >
+              <SquarePen size={15} />
+              {t('side.newChat')}
+            </button>
+            <label className="nav-search">
+              <Search size={14} />
+              <input
+                type="search"
+                value={search}
+                placeholder={t('side.search')}
+                aria-label={t('side.search')}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
           </div>
-          <div className="sidebar-sessions">
-            <div className="sidebar-group-list">
-              {orderedIds.map((connectionId) => (
-                <ConnectionGroupRow
-                  key={connectionId}
-                  connectionId={connectionId}
-                  profile={profiles.find((entry) => entry.id === connectionId) ?? null}
-                  isActiveConnection={connectionId === activeConnectionId}
-                  live={live}
-                  onMobileClose={onMobileClose}
-                  exitSettings={exitSettings}
-                />
-              ))}
-              {orderedIds.length === 0 && (
-                <div className="sidebar-empty">{t('side.noAgents')}</div>
-              )}
-            </div>
-          </div>
+          <div className="sidebar-sessions nav-list">{list}</div>
         </>
       )}
 
-      <div className="sidebar-footer-block">
-        {!onSettings && (
-          <button
-            type="button"
-            className="sidebar-add-agent"
-            onClick={() => {
-              // Lands directly on the Agent profiles section (#117) — that
-              // is the page this shortcut exists for.
-              onSelectSettingsSection('agents');
-              navigate('settings');
-              onMobileClose();
-            }}
-          >
-            <Plus size={13} />
-            {t('side.addAgent')}
-          </button>
-        )}
-        <div className="sidebar-footer">
-          <Bot size={14} className="sidebar-footer-icon" />
-          <span className="truncate">
-            {footerAgent ? `${footerAgent} · live` : 'acp · live'}
-          </span>
-          <IconButton
-            variant="ghost"
-            size="sm"
-            icon={<Settings size={14} />}
-            className={onSettings ? 'sidebar-settings-btn--active' : undefined}
-            label={onSettings ? t('side.backToSession') : t('side.settings')}
-            tooltip={onSettings ? t('side.backToSessionTooltip') : t('side.settingsTooltip')}
-            clickAction={() => {
-              navigate(onSettings ? 'main' : 'settings');
-              onMobileClose();
-            }}
-          />
+      <div className="sidebar-footer">
+        <div className="nav-families">
+          {profiles.length === 0 && !onSettings ? (
+            <button
+              type="button"
+              className="nav-family"
+              onClick={() => {
+                onSelectSettingsSection('agents');
+                navigate('settings');
+                onMobileClose();
+              }}
+            >
+              <Plus size={12} />
+              {t('side.addAgent')}
+            </button>
+          ) : (
+            profiles.map((profile) => (
+              <FamilyStatus
+                key={profile.id}
+                profile={profile}
+                live={live}
+                onActivated={closeNav}
+              />
+            ))
+          )}
         </div>
-      </div>
-
-      {newSessionOpen && (
-        <NewSessionDialog
-          isOpen
-          onOpenChange={(open) => {
-            setNewSessionOpen(open);
-            if (!open) setNewSessionHighlight(null);
-          }}
-          onStarted={() => {
-            setNewSessionHighlight(null);
-            exitSettings();
+        <IconButton
+          variant="ghost"
+          size="sm"
+          icon={<Settings size={14} />}
+          className={onSettings ? 'sidebar-settings-btn--active' : undefined}
+          label={onSettings ? t('side.backToSession') : t('side.settings')}
+          tooltip={onSettings ? t('side.backToSessionTooltip') : t('side.settingsTooltip')}
+          clickAction={() => {
+            navigate(onSettings ? 'main' : 'settings');
             onMobileClose();
           }}
-          live={live}
-          profiles={profiles}
-          highlightProfileId={newSessionHighlight}
         />
-      )}
+      </div>
     </aside>
   );
 }
 
-/**
- * Saves a 临时直连's endpoint as an Agent 配置 (phase 4): the running
- * connection is deliberately NOT migrated — the 配置's seeded slot appears
- * ready for the next session, and the temporary one ends with its disconnect
- * as always. The name arrives from the save-as dialog (#160 — the former
- * window.prompt); returns false when storage rejects the write.
- */
-function saveDirectAsProfile(url: string, cwd: string | null, name: string): boolean {
-  const trimmedUrl = url.trim();
-  const trimmedName = name.trim();
-  if (!trimmedUrl || !trimmedName) return false;
-  const workspace = cwdToWorkspace(cwd ?? '/');
-  return saveProfiles([
-    ...loadProfiles(),
-    { id: newProfileId(), name: trimmedName, kind: 'websocket', url: trimmedUrl, workspace, mcpServerIds: [] },
-  ]);
+const BUCKET_LABELS: Record<RecencyBucket, 'side.bucket.today' | 'side.bucket.yesterday' | 'side.bucket.week' | 'side.bucket.older'> = {
+  today: 'side.bucket.today',
+  yesterday: 'side.bucket.yesterday',
+  week: 'side.bucket.week',
+  older: 'side.bucket.older',
+};
+
+/** A chat's visible label: the local Rename title, else the session row label. */
+function chatLabel(row: ChatRow, layout: NavLayout, doc: SessionDocument | undefined): string {
+  return layout.titles[row.key] ?? sessionRowLabel(row.entry, doc);
 }
 
-/** The save-as dialog's prefilled name: the endpoint's host:port. */
-function endpointDefaultName(url: string): string {
-  const trimmed = url.trim();
-  try {
-    return new URL(trimmed).host;
-  } catch {
-    return trimmed;
-  }
+type DropTarget = { placement: NavPlacement | null; layout: NavLayout; commit(next: NavLayout): void };
+
+/** Drag-and-drop wiring for one target (desktop; touch uses the Move to menu). */
+function useDrop(drop: DropTarget | undefined) {
+  const [over, setOver] = useState(false);
+  if (!drop) return { over: false, handlers: {} };
+  return {
+    over,
+    handlers: {
+      onDragOver: (event: React.DragEvent) => {
+        if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setOver(true);
+      },
+      onDragLeave: (event: React.DragEvent) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false);
+      },
+      onDrop: (event: React.DragEvent) => {
+        const key = event.dataTransfer.getData(DRAG_TYPE);
+        setOver(false);
+        if (!key) return;
+        event.preventDefault();
+        event.stopPropagation();
+        drop.commit(placeChat(drop.layout, key, drop.placement));
+      },
+    },
+  };
 }
 
-/** Astryx StatusDot per lifecycle phase; 运行中 overlays a pulse. Phase →
- * pixels is mechanical lookup — precedence lives in the projection (#53). */
-function SlotStatusDot({ phase, running }: { phase: ConnectionPhase; running: boolean }) {
+/** A labeled group: Pinned, a section, Recents or search results. */
+function NavGroup({ label, collapsed = false, onToggle, drop, actions, renaming, onRename, children }: {
+  label: string;
+  collapsed?: boolean;
+  onToggle?(): void;
+  drop?: DropTarget;
+  actions?: ReactNode;
+  renaming?: boolean;
+  onRename?(name: string): void;
+  children: ReactNode;
+}) {
+  const { over, handlers } = useDrop(drop);
+  return (
+    <section className={`nav-group ${over ? 'nav-drop' : ''}`} {...handlers}>
+      <div className="nav-group-head">
+        {renaming && onRename ? (
+          <InlineName initial={label} placeholder={label} onDone={onRename} compact />
+        ) : onToggle ? (
+          <button type="button" className="nav-group-toggle" aria-expanded={!collapsed} onClick={onToggle}>
+            <span className="sidebar-label truncate">{label}</span>
+            {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          </button>
+        ) : (
+          <span className="sidebar-label truncate">{label}</span>
+        )}
+        {actions && <span className="nav-group-actions">{actions}</span>}
+      </div>
+      {!collapsed && <div className="nav-group-body">{children}</div>}
+    </section>
+  );
+}
+
+function FolderBlock({ name, count, collapsed, onToggle, drop, renaming, onRename, onStartRename, onDelete, children }: {
+  name: string;
+  count: number;
+  collapsed: boolean;
+  onToggle(): void;
+  drop: DropTarget;
+  renaming: boolean;
+  onRename(name: string): void;
+  onStartRename(): void;
+  onDelete(): void;
+  children: ReactNode;
+}) {
   const { t } = useI18n();
-  if (phase === 'connecting') {
-    return <Spinner size="sm" />;
-  }
-  if (phase === 'error') {
-    return <StatusDot variant="error" label={t('conn.error')} />;
-  }
-  if (phase === 'auth-required') {
-    return <StatusDot variant="warning" label={t('conn.authRequired')} />;
-  }
+  const { over, handlers } = useDrop(drop);
+  return (
+    <div className="nav-folder" {...handlers}>
+      <div className={`nav-folder-row ${over ? 'nav-drop' : ''}`}>
+        {renaming ? (
+          <InlineName
+            icon={<Folder size={14} className="sidebar-icon-faint" />}
+            initial={name}
+            placeholder={name}
+            onDone={onRename}
+          />
+        ) : (
+          <button type="button" className="nav-folder-btn" aria-expanded={!collapsed} onClick={onToggle}>
+            {collapsed ? <Folder size={14} className="nav-folder-icon" /> : <FolderOpen size={14} className="nav-folder-icon" />}
+            <span className="truncate">{name}</span>
+            <span className="nav-count">{count}</span>
+          </button>
+        )}
+        {!renaming && (
+          <span className="nav-row-more">
+            <NavMenu label={t('side.folderActions')}>
+              {(close) => (
+                <>
+                  <MenuItem icon={<Pencil size={14} />} onSelect={() => { close(); onStartRename(); }}>
+                    {t('side.renameFolder')}
+                  </MenuItem>
+                  <MenuItem icon={<Trash2 size={14} />} danger hint={t('side.deleteFolderHint')} onSelect={() => { close(); onDelete(); }}>
+                    {t('side.deleteFolder')}
+                  </MenuItem>
+                </>
+              )}
+            </NavMenu>
+          </span>
+        )}
+      </div>
+      {!collapsed && count > 0 && <div className="nav-folder-body">{children}</div>}
+    </div>
+  );
+}
+
+/** A name field for a new or renamed section, folder or chat. Enter or blur
+ * keeps the text, Escape drops it. */
+function InlineName({ icon, initial = '', placeholder, onDone, compact = false }: {
+  icon?: ReactNode;
+  initial?: string;
+  placeholder: string;
+  onDone(name: string): void;
+  compact?: boolean;
+}) {
+  const [value, setValue] = useState(initial);
+  const done = useRef(false);
+  const finish = (name: string) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(name);
+  };
+  return (
+    <div className={`nav-inline-name ${compact ? 'nav-inline-name--compact' : ''}`}>
+      {icon}
+      <input
+        autoFocus
+        value={value}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') finish(value);
+          else if (event.key === 'Escape') finish('');
+        }}
+        onBlur={() => finish(value)}
+      />
+    </div>
+  );
+}
+
+/** A row's live facts, as primitives so a streaming chunk elsewhere does not
+ * re-render it (useShallow compares field by field). */
+type RowFacts = {
+  foreground: boolean;
+  connected: boolean;
+  running: boolean;
+  needsAttention: boolean;
+  canSwitch: boolean;
+  canDelete: boolean;
+  disabledReason: 'busy' | 'offline' | 'host' | 'agent' | null;
+  label: string;
+};
+
+function rowFacts(row: ChatRow, layout: NavLayout): (s: ReturnType<typeof usePanda.getState>) => RowFacts {
+  return (s) => {
+    const slot = s.connections[row.connectionId];
+    const doc = slot?.docs[row.sessionId];
+    const label = chatLabel(row, layout, doc);
+    if (!slot) {
+      return { foreground: false, connected: false, running: false, needsAttention: false, canSwitch: false, canDelete: false, disabledReason: 'offline', label };
+    }
+    const lifecycle = connectionLifecycle(slot);
+    const connected = isLinkUp(lifecycle.phase);
+    const foreground = s.activeConnectionId === row.connectionId && s.activeSessionId === row.sessionId;
+    const anchored = slot.connection.sessionId === row.sessionId;
+    const running = doc?.status === 'running';
+    const pendingPermission = doc ? Object.values(doc.permissions).some((permission) => permission.status === 'pending') : false;
+    const loadSession = effectiveCapability('loadSession', slot.capabilities, PANDA_HOST_CAPABILITIES);
+    const deletable = effectiveCapability('delete', slot.capabilities, PANDA_HOST_CAPABILITIES).available;
+    const hasDoc = doc !== undefined;
+    const canSwitch = connected ? loadSession.available && !lifecycle.busy : hasDoc;
+    const disabledReason: RowFacts['disabledReason'] = canSwitch
+      ? null
+      : connected && lifecycle.busy
+        ? 'busy'
+        : !connected
+          ? 'offline'
+          : loadSession.reason === 'unavailable-on-host'
+            ? 'host'
+            : 'agent';
+    return {
+      foreground,
+      connected,
+      running,
+      needsAttention: !foreground && (pendingPermission || (anchored && slot.unreadCompletion)),
+      canSwitch,
+      canDelete: deletable && connected && !foreground && !lifecycle.busy,
+      disabledReason,
+      label,
+    };
+  };
+}
+
+const DISABLED_LABELS = {
+  busy: 'side.disabled.busy',
+  offline: 'side.disabled.offline',
+  host: 'side.disabled.host',
+  agent: 'side.disabled.agent',
+} as const;
+
+function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, renaming, setRenaming, onOpened }: {
+  row: ChatRow;
+  layout: NavLayout;
+  commit(next: NavLayout): void;
+  live: LiveSessionFacade;
+  familyNames: readonly string[];
+  newChatOpen: boolean;
+  renaming: string | null;
+  setRenaming(id: string | null): void;
+  onOpened(): void;
+}) {
+  const { t } = useI18n();
+  const facts = usePanda(useShallow(rowFacts(row, layout)));
+  const deleteAlert = useImperativeAlertDialog();
+  const current = facts.foreground && !newChatOpen;
+  const placement = layout.placements[row.key] ?? null;
+  const updated = formatRelativeTime(row.updatedAt, t);
+  const isRenaming = renaming === `chat:${row.key}`;
+
+  const open = () => {
+    useNewChat.getState().close();
+    if (!facts.foreground) live.openSession(row.connectionId, row.sessionId, row.cwd);
+    onOpened();
+  };
+
+  const move = (target: NavPlacement | null) => commit(placeChat(layout, row.key, target));
+
+  return (
+    <div
+      className="nav-row"
+      draggable={!isRenaming}
+      onDragStart={(event) => {
+        event.dataTransfer.setData(DRAG_TYPE, row.key);
+        event.dataTransfer.effectAllowed = 'move';
+      }}
+    >
+      {isRenaming ? (
+        <InlineName
+          icon={<FamilyBadge name={row.familyName} allNames={familyNames} />}
+          initial={facts.label}
+          placeholder={facts.label}
+          onDone={(name) => {
+            if (name.trim()) commit(setChatTitle(layout, row.key, name));
+            setRenaming(null);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          disabled={!current && !facts.canSwitch && !facts.foreground}
+          onClick={open}
+          aria-current={current ? 'page' : undefined}
+          title={
+            facts.canSwitch || facts.foreground
+              ? `${facts.label} · ${row.familyName} · ${sessionRowMeta(row.entry)}`
+              : facts.disabledReason
+                ? t(DISABLED_LABELS[facts.disabledReason])
+                : undefined
+          }
+          className={`nav-row-btn ${current ? 'nav-row-btn--current' : ''} ${
+            facts.canSwitch || facts.foreground ? '' : 'nav-row-btn--disabled'
+          }`}
+        >
+          <FamilyBadge name={row.familyName} allNames={familyNames} />
+          <span className="truncate">{facts.label}</span>
+          {facts.running ? (
+            <StatusDot variant="accent" isPulsing label={t('conn.running')} />
+          ) : facts.needsAttention ? (
+            <StatusDot variant="accent" label={t('side.needsAttention')} />
+          ) : null}
+          {updated !== null && <span className="nav-row-time">{updated}</span>}
+        </button>
+      )}
+      {!isRenaming && (
+        <span className="nav-row-more">
+          <NavMenu label={t('side.chatActions')}>
+            {(close) => (
+              <>
+                <MenuItem
+                  icon={placement?.kind === 'pinned' ? <PinOff size={14} /> : <Pin size={14} />}
+                  onSelect={() => {
+                    close();
+                    move(placement?.kind === 'pinned' ? null : { kind: 'pinned' });
+                  }}
+                >
+                  {placement?.kind === 'pinned' ? t('side.unpin') : t('side.pin')}
+                </MenuItem>
+                <MenuItem icon={<Pencil size={14} />} onSelect={() => { close(); setRenaming(`chat:${row.key}`); }}>
+                  {t('side.rename')}
+                </MenuItem>
+                <hr className="nav-menu-sep" />
+                <div className="nav-menu-head">{t('side.moveTo')}</div>
+                <MenuItem indent={1} checked={placement === null} onSelect={() => { close(); move(null); }}>
+                  {t('side.recents')}
+                </MenuItem>
+                {layout.sections.map((section) => (
+                  <div key={section.id} role="none">
+                    <MenuItem
+                      indent={1}
+                      checked={placement?.kind === 'section' && placement.sectionId === section.id && placement.folderId === null}
+                      onSelect={() => { close(); move({ kind: 'section', sectionId: section.id, folderId: null }); }}
+                    >
+                      {section.name}
+                    </MenuItem>
+                    {section.folders.map((folder) => (
+                      <MenuItem
+                        key={folder.id}
+                        indent={2}
+                        icon={<Folder size={13} />}
+                        checked={placement?.kind === 'section' && placement.folderId === folder.id}
+                        onSelect={() => { close(); move({ kind: 'section', sectionId: section.id, folderId: folder.id }); }}
+                      >
+                        {folder.name}
+                      </MenuItem>
+                    ))}
+                  </div>
+                ))}
+                {facts.canDelete && (
+                  <>
+                    <hr className="nav-menu-sep" />
+                    <MenuItem
+                      icon={<Trash2 size={14} />}
+                      danger
+                      onSelect={() => {
+                        close();
+                        deleteAlert.show({
+                          title: t('side.deleteSession'),
+                          description: t('side.deleteConfirm', { title: facts.label }),
+                          actionLabel: t('side.deleteSession'),
+                          actionVariant: 'destructive',
+                          onAction: () => {
+                            live.deleteSession(row.connectionId, row.sessionId);
+                            commit(forgetChat(layout, row.key));
+                            deleteAlert.hide();
+                          },
+                        });
+                      }}
+                    >
+                      {t('side.deleteSession')}
+                    </MenuItem>
+                  </>
+                )}
+              </>
+            )}
+          </NavMenu>
+        </span>
+      )}
+      {deleteAlert.element}
+    </div>
+  );
+}
+
+/**
+ * A ··· button with an anchored menu. The menu renders in a portal at fixed
+ * coordinates so the scrolling list never clips it; outside pointerdown and
+ * Escape close it.
+ */
+function NavMenu({ label, children }: { label: string; children(close: () => void): ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !buttonRef.current?.contains(target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, close]);
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current || !menuRef.current) return;
+    const anchor = buttonRef.current.getBoundingClientRect();
+    const menu = menuRef.current.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.max(margin, Math.min(anchor.right - menu.width, window.innerWidth - menu.width - margin));
+    const below = anchor.bottom + 4;
+    const top = below + menu.height > window.innerHeight - margin ? Math.max(margin, anchor.top - menu.height - 4) : below;
+    setPosition({ top, left });
+    menuRef.current.querySelector<HTMLButtonElement>('.nav-menu-item')?.focus();
+  }, [open]);
+
+  return (
+    <>
+      <span ref={buttonRef} className={`nav-menu-anchor ${open ? 'nav-menu-anchor--open' : ''}`}>
+        <IconButton
+          variant="ghost"
+          size="sm"
+          icon={<MoreHorizontal size={14} />}
+          label={label}
+          clickAction={() => {
+            setPosition(null);
+            setOpen((value) => !value);
+          }}
+        />
+      </span>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={label}
+            className="nav-menu"
+            style={position ? { top: position.top, left: position.left } : { visibility: 'hidden', top: 0, left: 0 }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+              event.preventDefault();
+              const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('.nav-menu-item') ?? []);
+              const index = items.indexOf(document.activeElement as HTMLButtonElement);
+              const delta = event.key === 'ArrowDown' ? 1 : -1;
+              items[(index + delta + items.length) % items.length]?.focus();
+            }}
+          >
+            {children(close)}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function MenuItem({ icon, danger = false, hint, indent = 0, checked = false, onSelect, children }: {
+  icon?: ReactNode;
+  danger?: boolean;
+  hint?: string;
+  indent?: 0 | 1 | 2;
+  checked?: boolean;
+  onSelect(): void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role={checked ? 'menuitemradio' : 'menuitem'}
+      aria-checked={checked || undefined}
+      tabIndex={-1}
+      className={`nav-menu-item nav-menu-item--indent-${indent} ${danger ? 'nav-menu-item--danger' : ''} ${
+        checked ? 'nav-menu-item--checked' : ''
+      }`}
+      onClick={onSelect}
+    >
+      {icon}
+      <span className="nav-menu-text">
+        <span className="truncate">{children}</span>
+        {hint && <span className="nav-menu-hint">{hint}</span>}
+      </span>
+    </button>
+  );
+}
+
+/** Lifecycle phase → status dot, as the old section head drew it. */
+function PhaseDot({ phase, running }: { phase: ConnectionPhase; running: boolean }) {
+  const { t } = useI18n();
+  if (phase === 'connecting') return <Spinner size="sm" />;
+  if (phase === 'error') return <StatusDot variant="error" label={t('conn.error')} />;
+  if (phase === 'auth-required') return <StatusDot variant="warning" label={t('conn.authRequired')} />;
   if (isLinkUp(phase)) {
     return running
       ? <StatusDot variant="accent" isPulsing label={t('conn.running')} />
@@ -272,312 +929,52 @@ function SlotStatusDot({ phase, running }: { phase: ConnectionPhase; running: bo
   return <StatusDot variant="neutral" label={t('conn.disconnected')} />;
 }
 
-/** 需要关注 reasons in user words — the projection carries the reasons,
- * only their phrasing lives here. */
-const ATTENTION_LABELS: Record<AttentionReason, 'side.attention.unreadCompletion' | 'side.attention.pendingPermission' | 'side.attention.connectionError' | 'side.attention.authRequired'> = {
-  'unread-completion': 'side.attention.unreadCompletion',
-  'pending-permission': 'side.attention.pendingPermission',
-  'connection-error': 'side.attention.connectionError',
-  'auth-required': 'side.attention.authRequired',
-};
-
-/** One agent's section: header (status, indicators, hover actions), an
- * inline error recovery block when the connection failed, and the session
- * list (live or remembered). */
-function ConnectionGroupRow({ connectionId, profile, isActiveConnection, live, onMobileClose, exitSettings }: {
-  connectionId: string;
-  profile: AgentProfile | null;
-  isActiveConnection: boolean;
+/** One family in the footer: its status dot and name. A family that is not
+ * connected acts on click — reconnect after an error, connect when offline,
+ * show the sign-in for auth-required. */
+function FamilyStatus({ profile, live, onActivated }: {
+  profile: AgentProfile;
   live: LiveSessionFacade;
-  onMobileClose(): void;
-  exitSettings(): void;
+  onActivated(): void;
 }) {
-  // Whole-slot subscription for the display facts; status meaning comes
-  // from the lifecycle projection (#53). Only THIS group re-renders on stream.
-  const slot = usePanda((s) => s.connections[connectionId]);
-  const lifecycle = useConnectionLifecycle(connectionId);
-  const activeSessionId = usePanda((s) => s.activeSessionId);
   const { t } = useI18n();
-  // #160: the remove-connection confirm and the save-as-配置 name prompt
-  // used to be window.confirm/window.prompt — native browser chrome that
-  // breaks the Astryx surface (and the desktop shell).
-  const removeAlert = useImperativeAlertDialog();
-  const [saveAs, setSaveAs] = useState<{ url: string; cwd: string | null } | null>(null);
-  const [saveAsName, setSaveAsName] = useState('');
-  if (!slot || !lifecycle) return null;
-
-  const { phase } = lifecycle;
-  const connected = isLinkUp(phase);
-  const offline = phase === 'disconnected';
-  // The trailing 需要关注 dot speaks for session-level reasons only
-  // (unread completion, pending permission). connection-error and
-  // auth-required already show at the row head (SlotStatusDot error/
-  // warning) — a background errored slot otherwise reads as two red dots
-  // saying one thing (#150).
-  const sessionAttention = lifecycle.attention.filter(
-    (reason) => reason !== 'connection-error' && reason !== 'auth-required',
+  const facts = usePanda(
+    useShallow((s) => {
+      const slot = s.connections[profile.id];
+      if (!slot) return { phase: 'disconnected' as ConnectionPhase, running: false, error: null as string | null };
+      const lifecycle = connectionLifecycle(slot);
+      return { phase: lifecycle.phase, running: lifecycle.running, error: lifecycle.error };
+    }),
   );
-  const attention = sessionAttention.length > 0;
-  const title = profile?.name ?? slot.connection.url ?? connectionId;
-  const isForegroundSession = (sessionId: string) => isActiveConnection && sessionId === activeSessionId;
-  // Resume needs a retained session; seeded slots have none.
-  const canResume = phase === 'error' && slot.connection.sessionId !== null;
-
-  // Pure recency (#175) — no foreground pin: switching must not move rows,
-  // the current session is recognized by its highlight.
-  const ordered = orderedSessions(slot.sessions);
-
+  const up = isLinkUp(facts.phase);
+  const act = () => {
+    if (up || facts.phase === 'connecting') return;
+    useNewChat.getState().close();
+    if (facts.phase === 'error') live.reconnectForeground({ connectionId: profile.id });
+    else if (facts.phase === 'auth-required') live.foreground(profile.id);
+    else live.connectProfile(profile);
+    onActivated();
+  };
+  const status = up
+    ? t('conn.connected')
+    : facts.phase === 'error'
+      ? `${t('conn.error')}: ${facts.error ?? ''} · ${t('side.familyReconnect')}`
+      : facts.phase === 'auth-required'
+        ? t('conn.authRequired')
+        : facts.phase === 'connecting'
+          ? t('status.connecting')
+          : `${t('conn.disconnected')} · ${t('side.familyConnect')}`;
   return (
-    <div className={`sidebar-group ${isActiveConnection ? 'sidebar-group--active' : ''}`}>
-      <div className="sidebar-row">
-        <button
-          type="button"
-          onClick={() => {
-            // An offline 配置 row's click IS the connect (#221) — the seeded
-            // slot has nothing to foreground yet, and「点行即连」is what a
-            // first-time visitor expects. Every other phase foregrounds:
-            // connecting is already dialing, connected/auth rows have content,
-            // and an error row's affordances live in its recovery block.
-            if (offline && profile) live.connectProfile(profile);
-            else live.foreground(connectionId);
-            exitSettings();
-            onMobileClose();
-          }}
-          title={
-            offline && profile
-              ? t('side.connectProfileTooltip', { name: title, url: profileEndpoint(profile) })
-              : slot.connection.url ?? title
-          }
-          className={`sidebar-connection-btn ${
-            isActiveConnection ? 'sidebar-connection-btn--active' : ''
-          } ${connected ? '' : 'sidebar-connection-btn--offline'}`}
-        >
-          <SlotStatusDot phase={phase} running={lifecycle.running} />
-          <span className="truncate sidebar-row-title">{title}</span>
-          {isDirectConnectionId(connectionId) && (
-            <span className="sidebar-temp-badge" title={t('side.tempTooltip')}>
-              {t('side.temp')}
-            </span>
-          )}
-          {slot.connection.agentName && (
-            <span className="truncate sidebar-row-sub">{slot.connection.agentName}</span>
-          )}
-          <span className="sidebar-row-end">
-            {/* 需要关注 is a *background* connection indicator (CONTEXT.md):
-                the foreground slot's issues are in plain sight (permission
-                card, the error block below). */}
-            {attention && !isActiveConnection && (
-              <StatusDot
-                variant="error"
-                label={t('side.needsAttention')}
-                tooltip={t('side.attentionTooltip', { reasons: sessionAttention.map((reason) => t(ATTENTION_LABELS[reason])).join(' / ') })}
-              />
-            )}
-          </span>
-        </button>
-        <div className="sidebar-hover-actions">
-          {isDirectConnectionId(connectionId) && slot.connection.url && (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              icon={<BookmarkPlus size={12} />}
-              label={t('side.saveProfile')}
-              tooltip={t('side.saveProfileTooltip')}
-              clickAction={() => {
-                setSaveAsName(endpointDefaultName(slot.connection.url!));
-                setSaveAs({ url: slot.connection.url!, cwd: slot.connection.cwd });
-              }}
-            />
-          )}
-          {(connected || phase === 'connecting') && (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              icon={<Unplug size={12} />}
-              label={t('side.disconnect')}
-              tooltip={isDirectConnectionId(connectionId) ? t('side.disconnectTemp') : t('side.disconnectSlot')}
-              clickAction={() => live.disconnect(connectionId)}
-            />
-          )}
-          {offline && profile && (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              icon={<PlugZap size={12} />}
-              label={t('side.connectProfile')}
-              tooltip={t('side.connectProfileTooltip', { name: profile.name, url: profileEndpoint(profile) })}
-              clickAction={() => live.connectProfile(profile)}
-            />
-          )}
-          {(phase === 'error' || !offline) && (
-            <IconButton
-              variant="ghost"
-              size="sm"
-              icon={<Trash2 size={12} />}
-              label={t('side.removeConnection')}
-              tooltip={t('side.removeConnectionTooltip')}
-              clickAction={() => {
-                removeAlert.show({
-                  title: t('side.removeConnection'),
-                  description: t('side.removeConfirm', { title }),
-                  actionLabel: t('side.removeConnection'),
-                  actionVariant: 'destructive',
-                  onAction: () => {
-                    live.remove(connectionId);
-                    removeAlert.hide();
-                  },
-                });
-              }}
-            />
-          )}
-        </div>
-      </div>
-      {phase === 'error' && lifecycle.error && (
-        <div className="sidebar-conn-error">
-          <p className="sidebar-conn-error-text" title={lifecycle.error}>
-            {lifecycle.error}
-          </p>
-          <div className="sidebar-conn-error-actions">
-            {/* Row-level actions name their slot (bug hunt #1): reconnecting
-                THIS errored connection must never tear down the healthy
-                foreground one. */}
-            {canResume && (
-              <Button
-                variant="primary"
-                size="sm"
-                label={t('side.resume')}
-                tooltip={t('side.resumeTooltip')}
-                clickAction={() => live.reconnectForeground({ connectionId, resume: true })}
-              />
-            )}
-            <Button
-              variant={canResume ? 'secondary' : 'primary'}
-              size="sm"
-              label={t('side.reconnect')}
-              clickAction={() => live.reconnectForeground({ connectionId })}
-            />
-          </div>
-        </div>
-      )}
-      {ordered.length > 0 && (
-        <div className="sidebar-session-list">
-          {ordered.map((entry) => {
-            const foregroundSession = isForegroundSession(entry.sessionId);
-            // Offline slots keep retained documents clickable (查看历史);
-            // sessions never loaded locally stay inert until connected.
-            const hasDoc = slot.docs[entry.sessionId] !== undefined;
-            // Capability gating goes through the effective-capability
-            // decision point (issue #22), never the raw declaration.
-            const loadSession = effectiveCapability(
-              'loadSession',
-              slot.capabilities,
-              PANDA_HOST_CAPABILITIES,
-            );
-            const canDelete = effectiveCapability('delete', slot.capabilities, PANDA_HOST_CAPABILITIES);
-            const canSwitch = connected ? loadSession.available && !lifecycle.busy : hasDoc;
-            const label = sessionRowLabel(entry, slot.docs[entry.sessionId]);
-            const updated = formatRelativeTime(entry.updatedAt, t);
-            return (
-              <div key={entry.sessionId} className="sidebar-session">
-                <button
-                  disabled={foregroundSession || !canSwitch}
-                  onClick={() => {
-                    live.openSession(connectionId, entry.sessionId, entry.cwd);
-                    exitSettings();
-                    onMobileClose();
-                  }}
-                  title={
-                    foregroundSession
-                      ? undefined
-                      : !canSwitch && connected && lifecycle.busy
-                        ? t('side.disabled.busy')
-                        : !connected && !hasDoc
-                          ? t('side.disabled.offline')
-                          : connected && !loadSession.available
-                            ? loadSession.reason === 'unavailable-on-host'
-                              ? t('side.disabled.host')
-                              : t('side.disabled.agent')
-                            : sessionRowMeta(entry)
-                  }
-                  className={`sidebar-session-btn ${
-                    foregroundSession
-                      ? 'sidebar-session-btn--foreground'
-                      : canSwitch
-                        ? ''
-                        : 'sidebar-session-btn--disabled'
-                  }`}
-                >
-                  <MessagesSquare size={12} className="sidebar-icon-faint" />
-                  <span className="truncate">{label}</span>
-                  {updated !== null && (
-                    <span
-                      className="sidebar-session-time"
-                      title={entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : undefined}
-                    >
-                      {updated}
-                    </span>
-                  )}
-                </button>
-                {canDelete.available && connected && !foregroundSession && !lifecycle.busy && (
-                  <span className="sidebar-session-delete">
-                    <IconButton
-                      variant="ghost"
-                      size="sm"
-                      icon={<Trash2 size={12} />}
-                      label={t('side.deleteSession')}
-                      tooltip={t('side.deleteSessionTooltip')}
-                      clickAction={() => live.deleteSession(connectionId, entry.sessionId)}
-                    />
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {removeAlert.element}
-      <Dialog
-        isOpen={saveAs !== null}
-        onOpenChange={(open) => {
-          if (!open) setSaveAs(null);
-        }}
-        purpose="form"
-        width={380}
-      >
-        <DialogHeader
-          title={t('side.saveProfile')}
-          subtitle={saveAs?.url}
-          onOpenChange={() => setSaveAs(null)}
-        />
-        <LayoutContent>
-          <TextInput
-            label={t('side.profileNamePrompt')}
-            value={saveAsName}
-            onChange={setSaveAsName}
-          />
-          <div className="sidebar-save-as-actions">
-            <Button
-              variant="secondary"
-              size="sm"
-              label={t('settings.cancel')}
-              clickAction={() => setSaveAs(null)}
-            />
-            <Button
-              variant="primary"
-              size="sm"
-              label={t('settings.save')}
-              isDisabled={saveAsName.trim().length === 0}
-              clickAction={() => {
-                if (saveAs && !saveDirectAsProfile(saveAs.url, saveAs.cwd, saveAsName)) {
-                  notifyUser('error', t('settings.notice.saveFailed'));
-                }
-                setSaveAs(null);
-              }}
-            />
-          </div>
-        </LayoutContent>
-      </Dialog>
-    </div>
+    <button
+      type="button"
+      className={`nav-family ${up ? 'nav-family--up' : ''}`}
+      title={`${profile.name}: ${status}`}
+      aria-label={`${profile.name}: ${status}`}
+      onClick={act}
+    >
+      <PhaseDot phase={facts.phase} running={facts.running} />
+      <span className="truncate">{profile.name}</span>
+    </button>
   );
 }
 
