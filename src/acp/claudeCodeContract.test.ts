@@ -198,7 +198,7 @@ describe.skipIf(!hasFixtures)('claude-agent-acp 真实报文契约(#154 回放)'
 
       // 真实 initialize(claude-agent-acp 0.75.x):list/resume/delete/close
       // 全量 session 能力 + image + loadSession → Panda 能力矩阵全绿。
-      expect(capabilities[0]).toEqual({ image: true, loadSession: true, list: true, resume: true, delete: true });
+      expect(capabilities[0]).toEqual({ image: true, loadSession: true, list: true, resume: true, delete: true, rewind: false });
       // 客户端展示 agentInfo.title(claude 的真实值)。
       expect(connected[0]?.agentName).toBe('Claude Agent');
 

@@ -187,7 +187,7 @@ describe.skipIf(!enabled)('claude-agent-acp 真连 e2e(#154 层 2, 花真实 tok
 
   it('握手能力矩阵与 session/new(真实 initialize)', { timeout: 120_000 }, () => {
     // 层 1 fixture 断言的同一形状,这次对着活进程:适配器升级若改能力面,这里先红。
-    expect(capabilitiesList[0]).toEqual({ image: true, loadSession: true, list: true, resume: true, delete: true });
+    expect(capabilitiesList[0]).toEqual({ image: true, loadSession: true, list: true, resume: true, delete: true, rewind: false });
     expect(sessionId).not.toBe('');
   });
 

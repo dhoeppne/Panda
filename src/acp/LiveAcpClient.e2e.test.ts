@@ -276,7 +276,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
 
   it('声明图片与 load 能力、全套 session 管理能力,并支持模式切换', async () => {
     expect(records.capabilities).toEqual([
-      { image: true, loadSession: true, list: true, resume: true, delete: true },
+      { image: true, loadSession: true, list: true, resume: true, delete: true, rewind: false },
     ]);
 
     const connection = client({ name: 'panda-e2e-mode-check' }).connect(

@@ -250,6 +250,7 @@ const initialCapabilities: AgentCapabilityInfo = {
   list: false,
   resume: false,
   delete: false,
+  rewind: false,
 };
 
 export function emptyConnectionState(): ConnectionState {

@@ -166,6 +166,7 @@ None of these are entry requirements, but each omission has a clear user-visible
 | 13 | Command completion | `available_commands_update` | no slash-command autocomplete | 3 |
 | 14 | Session modes | `modes` + `session/set_mode` + `current_mode_update` | no mode switcher | 3 |
 | 15 | Context compaction | `compaction_update` + `compaction_summary_chunk` | transcript mutates without explanation | 3 |
+| 16 | Rewind (creche extension) | `agentCapabilities._meta["creche/rewind"]` + `_creche/session/rewind` `{sessionId, messageId}` → `{}`; a `messageId` on every `user_message_chunk` (live echo and replay) | no way to take a chat back to an earlier message | 3 |
 
 ### 5.1 Tier one: core experience visibly broken
 
@@ -199,7 +200,7 @@ None of these are entry requirements, but each omission has a clear user-visible
 
 | Item | Budget | On expiry |
 | --- | --- | --- |
-| Control-plane RPCs: `initialize`, `session/new`, `session/list`, `session/resume`, `session/delete`, `session/set_mode`, `session/set_config_option`, `logout` | **30 s** (`CONTROL_REQUEST_TIMEOUT_MS`) | agent judged hung; the whole connection is torn down |
+| Control-plane RPCs: `initialize`, `session/new`, `session/list`, `session/resume`, `session/delete`, `session/set_mode`, `session/set_config_option`, `logout`, `_creche/session/rewind` | **30 s** (`CONTROL_REQUEST_TIMEOUT_MS`) | agent judged hung; the whole connection is torn down |
 | `session/load` | **60 s** before the first correctly routed replay update (`SESSION_LOAD_FIRST_UPDATE_TIMEOUT_MS`); then **30 s** without an update; **120 s total** (`SESSION_LOAD_HARD_TIMEOUT_MS`) | agent judged hung; the whole connection is torn down |
 | `session/prompt` | unbounded | a turn runs as long as it runs; the user bounds it with cancel |
 | `authenticate` | unbounded | OAuth waits on the user out-of-band |
