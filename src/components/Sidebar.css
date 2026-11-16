@@ -98,158 +98,10 @@
   padding-inline: 12px; /* px-3 */
 }
 
-.sidebar-group-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px; /* space-y-1 */
-}
-
 /* Shared faint leading glyph on rows (session rows, footer). */
 .sidebar-icon-faint {
   flex-shrink: 0;
   color: var(--color-faint);
-}
-
-/* --- Connection group + rows --- */
-
-.sidebar-group {
-  position: relative;
-  border-radius: var(--panda-radius-lg);
-}
-.sidebar-group--active {
-  background: color-mix(in oklab, var(--color-raised) 40%, transparent);
-}
-
-/* The hoverable row strip inside a group (connection/dormant header). */
-.sidebar-row {
-  position: relative;
-}
-
-.sidebar-connection-btn {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 6px; /* gap-1.5 */
-  border-radius: var(--panda-radius-lg);
-  padding: 8px 12px; /* px-3 py-2 */
-  text-align: left;
-  font-size: var(--panda-size-chrome);
-  transition: var(--panda-colors-transition);
-  color: color-mix(in oklab, var(--color-fg) 70%, transparent);
-}
-.sidebar-connection-btn:not(.sidebar-connection-btn--active):hover {
-  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
-  color: color-mix(in oklab, var(--color-fg) 90%, transparent);
-}
-.sidebar-connection-btn--active {
-  color: var(--color-fg);
-}
-.sidebar-connection-btn--offline {
-  opacity: 0.75;
-}
-
-.sidebar-row-title {
-  font-weight: 500;
-}
-
-.sidebar-row-sub {
-  font-size: var(--panda-size-micro);
-  color: var(--color-faint);
-}
-
-.sidebar-row-end {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 4px; /* gap-1 */
-  margin-left: auto;
-  padding-right: 2px; /* pr-0.5 */
-}
-
-.sidebar-hover-actions {
-  position: absolute;
-  top: 50%;
-  right: 4px; /* right-1 */
-  display: none;
-  align-items: center;
-  gap: 2px; /* gap-0.5 */
-  transform: translateY(-50%);
-}
-.sidebar-row:hover .sidebar-hover-actions {
-  display: flex;
-}
-
-/* --- Session rows --- */
-
-.sidebar-session-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px; /* space-y-0.5 */
-  padding: 0 0 4px 8px; /* pb-1 pl-2 */
-}
-
-.sidebar-session {
-  position: relative;
-}
-
-.sidebar-session-btn {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 8px; /* gap-2 */
-  border-radius: var(--panda-radius-lg);
-  padding: 6px 12px; /* px-3 py-1.5 */
-  text-align: left;
-  font-size: var(--panda-size-chrome);
-  color: color-mix(in oklab, var(--color-fg) 60%, transparent);
-  transition: var(--panda-colors-transition);
-}
-.sidebar-session-btn:not(.sidebar-session-btn--foreground):not(.sidebar-session-btn--disabled):hover {
-  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
-  color: color-mix(in oklab, var(--color-fg) 90%, transparent);
-}
-.sidebar-session-btn--foreground {
-  background: var(--color-raised);
-  color: color-mix(in oklab, var(--color-fg) 90%, transparent);
-}
-.sidebar-session-btn--disabled {
-  cursor: not-allowed;
-  color: color-mix(in oklab, var(--color-fg) 35%, transparent);
-}
-
-/* Last-activity label (#175): pushed to the row's end; it keeps its width
-   while the truncating title gives way. */
-.sidebar-session-time {
-  flex-shrink: 0;
-  margin-left: auto;
-  font-size: var(--panda-size-chrome);
-  opacity: 0.7;
-  white-space: nowrap;
-}
-
-.sidebar-session-delete {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  display: none;
-  transform: translateY(-50%);
-}
-.sidebar-session:hover .sidebar-session-delete {
-  display: block;
-}
-
-/* --- Offline / errored agent sections (phase 3) --- */
-
-/* 临时直连 marker (phase 4): a direct connection dies with its disconnect —
- * the badge is what separates it from a saved 配置's section. */
-.sidebar-temp-badge {
-  flex-shrink: 0;
-  padding: 1px 5px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--panda-radius-full);
-  font-size: var(--panda-size-micro);
-  line-height: 1.4;
-  color: var(--color-muted);
 }
 
 .sidebar-empty {
@@ -263,82 +115,16 @@
   gap: 8px;
 }
 
-.sidebar-conn-error {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  margin: 2px 0 4px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--panda-radius-md);
-  background: var(--color-raised);
-}
-
-.sidebar-conn-error-text {
-  margin: 0;
-  font-size: var(--panda-size-micro);
-  line-height: 1.45;
-  color: var(--color-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* The card's content box is ~184px (240px sidebar) while both buttons are
- * no-wrap and wider together (~266px) — without wrap they push past the card
- * and the sidebar edge (#150). */
-.sidebar-conn-error-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-/* --- Footer block --- */
-
-.sidebar-footer-block {
-  margin-top: auto;
-}
-
-.sidebar-add-agent {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 20px;
-  border: none;
-  border-top: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-muted);
-  font-size: var(--panda-size-chrome);
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-}
-
-.sidebar-add-agent:hover {
-  color: var(--color-fg);
-  background: var(--color-raised);
-}
-
 .sidebar-footer {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: auto;
   border-top: 1px solid var(--color-border);
-  padding: 10px 12px 10px 20px; /* px-5 py-2.5, tighter for the gear on the end */
+  padding: 8px 12px; /* the gear sits on the end */
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
   font-size: var(--panda-size-micro);
   color: var(--color-muted);
-}
-
-.sidebar-footer .truncate {
-  flex: 1;
-  min-width: 0;
-}
-
-.sidebar-footer-icon {
-  flex-shrink: 0;
-  color: var(--color-accent);
 }
 
 /* Settings route (#113): the gear reads as the current destination — same
@@ -406,9 +192,357 @@
   background: color-mix(in oklab, var(--color-accent) 12%, transparent);
 }
 
-/* Save-as-配置 dialog action row (#160): trailing-aligned buttons. */
-.sidebar-save-as-actions {
+/* --- Navigation (sections, folders, merged chat rows) --- */
+
+.nav-top {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 8px;
+}
+
+.nav-new-chat {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  width: 100%;
+  border-radius: var(--panda-radius-lg);
+  padding: 7px 12px;
+  text-align: left;
+  font-size: var(--panda-size-chrome);
+  font-weight: 500;
+  color: color-mix(in oklab, var(--color-fg) 80%, transparent);
+  transition: var(--panda-colors-transition);
+}
+.nav-new-chat:hover:not(:disabled),
+.nav-new-chat--active {
+  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
+  color: var(--color-fg);
+}
+.nav-new-chat:disabled {
+  opacity: 0.5;
+}
+
+.nav-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--panda-radius-lg);
+  padding: 6px 12px;
+  background: color-mix(in oklab, var(--color-raised) 45%, transparent);
+  color: var(--color-muted);
+}
+.nav-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--color-fg);
+  /* 16px keeps iOS Safari from zooming the page on focus. */
+  font-size: max(16px, var(--panda-size-chrome));
+}
+@media (pointer: fine) {
+  .nav-search input { font-size: var(--panda-size-chrome); }
+}
+.nav-search input::placeholder {
+  color: var(--color-faint);
+}
+.nav-search:focus-within {
+  outline: 2px solid color-mix(in oklab, var(--color-accent) 40%, transparent);
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 12px;
+}
+
+.nav-group {
+  border-radius: var(--panda-radius-lg);
+}
+
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+  padding: 0 2px 0 12px;
+}
+
+.nav-group-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  text-align: left;
+  color: var(--color-faint);
+}
+
+.nav-group-actions {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 120ms var(--panda-ease);
+}
+.nav-group-head:hover .nav-group-actions,
+.nav-group-head:focus-within .nav-group-actions {
+  opacity: 1;
+}
+
+.nav-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+/* A drag hovering a section, a folder or Recents. */
+.nav-drop {
+  background: color-mix(in oklab, var(--color-accent) 10%, transparent);
+  border-radius: var(--panda-radius-lg);
+}
+
+.nav-bucket-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-bucket {
+  padding: 6px 12px 2px;
+  font-size: var(--panda-size-micro);
+  color: var(--color-muted);
+}
+
+.nav-add-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--panda-radius-lg);
+  padding: 6px 12px;
+  font-size: var(--panda-size-chrome);
+  color: var(--color-muted);
+  transition: var(--panda-colors-transition);
+}
+.nav-add-section:hover {
+  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
+  color: var(--color-fg);
+}
+
+.nav-folder-row,
+.nav-row {
+  position: relative;
+}
+
+.nav-folder-btn,
+.nav-row-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--panda-radius-lg);
+  padding: 6px 12px;
+  text-align: left;
+  font-size: var(--panda-size-chrome);
+  transition: var(--panda-colors-transition);
+}
+
+.nav-folder-btn {
+  color: color-mix(in oklab, var(--color-fg) 75%, transparent);
+}
+.nav-folder-icon {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
+.nav-count {
+  margin-left: auto;
+  font-size: var(--panda-size-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+}
+
+.nav-folder-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-left: 18px;
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in oklab, var(--color-border) 60%, transparent);
+}
+
+.nav-row-btn {
+  color: color-mix(in oklab, var(--color-fg) 62%, transparent);
+}
+.nav-folder-btn:hover,
+.nav-row-btn:not(.nav-row-btn--current):not(.nav-row-btn--disabled):hover {
+  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
+  color: color-mix(in oklab, var(--color-fg) 90%, transparent);
+}
+.nav-row-btn--current {
+  background: var(--color-raised);
+  color: var(--color-fg);
+  font-weight: 500;
+}
+.nav-row-btn--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Last activity, pushed to the row's end. The ··· button takes its place
+ * on hover. */
+.nav-row-time {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 4px;
+  font-size: var(--panda-size-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-faint);
+  white-space: nowrap;
+}
+
+.nav-row-more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: none;
+  transform: translateY(-50%);
+}
+.nav-row:hover .nav-row-more,
+.nav-row:focus-within .nav-row-more,
+.nav-folder-row:hover .nav-row-more,
+.nav-folder-row:focus-within .nav-row-more,
+.nav-row-more:has(.nav-menu-anchor--open) {
+  display: block;
+}
+.nav-row:hover .nav-row-time,
+.nav-row:focus-within .nav-row-time,
+.nav-folder-row:hover .nav-count {
+  visibility: hidden;
+}
+/* Touch has no hover: the ··· stays visible on every row. */
+@media (hover: none) {
+  .nav-row-more { display: block; }
+  .nav-row-time,
+  .nav-count { visibility: hidden; }
+}
+
+.nav-inline-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--panda-radius-lg);
+  padding: 4px 8px 4px 12px;
+  background: var(--color-raised);
+}
+.nav-inline-name input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--color-fg);
+  font-size: max(16px, var(--panda-size-chrome));
+}
+@media (pointer: fine) {
+  .nav-inline-name input { font-size: var(--panda-size-chrome); }
+}
+.nav-inline-name--compact {
+  flex: 1;
+  padding: 2px 6px;
+}
+
+/* Row and section menus: portaled to <body>, fixed at the anchor. */
+.nav-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 200px;
+  max-width: 280px;
+  max-height: min(420px, calc(100dvh - 16px));
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--panda-radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-high);
+  padding: 4px;
+  font-family: var(--font-sans);
+  font-size: var(--panda-size-chrome);
+  color: var(--color-fg);
+}
+
+.nav-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border-radius: var(--panda-radius-md);
+  padding: 7px 10px;
+  text-align: left;
+  color: var(--color-fg);
+}
+.nav-menu-item:hover,
+.nav-menu-item:focus-visible {
+  background: color-mix(in oklab, var(--color-raised) 70%, transparent);
+  outline: none;
+}
+.nav-menu-item--indent-1 { padding-left: 18px; }
+.nav-menu-item--indent-2 { padding-left: 30px; }
+.nav-menu-item--checked { font-weight: 600; }
+.nav-menu-item--danger { color: var(--color-danger); }
+
+.nav-menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.nav-menu-hint {
+  font-size: var(--panda-size-micro);
+  color: var(--color-muted);
+}
+
+.nav-menu-head {
+  padding: 6px 10px 2px;
+  font-size: var(--panda-size-micro);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+}
+
+.nav-menu-sep {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid color-mix(in oklab, var(--color-border) 60%, transparent);
+}
+
+/* Footer: one status dot per family. */
+.nav-families {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 2px 4px;
+}
+
+.nav-family {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border-radius: var(--panda-radius-md);
+  padding: 3px 6px;
+  font-size: var(--panda-size-micro);
+  color: var(--color-muted);
+}
+.nav-family:not(.nav-family--up):hover {
+  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
+  color: var(--color-fg);
+}
+.nav-family--up {
+  cursor: default;
 }

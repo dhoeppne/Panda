@@ -16,7 +16,7 @@ import {
   type AgentProfile,
 } from '../profiles';
 import { testLiveTarget } from '../liveConnections';
-import { useNewSessionIntent } from '../newSessionIntent';
+import { useNewChat } from '../newChat';
 import { hasStdioHost } from '../acp/transport/stdioHost';
 import {
   loadMcpServers,
@@ -377,10 +377,10 @@ function AgentsSection({ profiles }: { profiles: AgentProfile[] }) {
               label={t('settings.startSessionCtaNamed', { name: created.name })}
               icon={<MessagesSquare size={12} />}
               clickAction={() => {
-                // Deep link (#221): back to the session view, new-session
-                // picker open with the fresh profile preselected.
+                // Deep link (#221): back to the session view, in a new
+                // chat with the fresh profile picked as its family.
                 navigate('main');
-                useNewSessionIntent.getState().request(created.id);
+                useNewChat.getState().start(created.id);
                 setCreated(null);
               }}
             />

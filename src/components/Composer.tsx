@@ -84,7 +84,9 @@ export function submitAction(input: {
   return input.canQueue ? 'queue' : 'none';
 }
 
-export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAttachImages, canStop, onStop, modes, onSetMode, commands, configOptions, onSetConfigOption, sessionKey }: {
+export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAttachImages, canStop, onStop, modes, onSetMode, commands, configOptions, onSetConfigOption, sessionKey, family }: {
+  /** The family chip (picker in a new chat, locked label in an existing one). */
+  family?: React.ReactNode;
   onSend: (content: AcpContentBlock[]) => void;
   /** Sends and popovers are closed (turn running, link down, switching). */
   disabled: boolean;
@@ -359,6 +361,7 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
           </div>
           <div className="composer-footer">
             <div className="composer-footer-lead">
+              {family}
               <IconButton
                 variant="ghost"
                 size="sm"
