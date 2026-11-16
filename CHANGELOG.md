@@ -17,7 +17,9 @@ follow the releases published from this repository.
   when the browser comes online and every 60 s, and pushes local changes
   after 400 ms. The server wins a conflict. Without the store, Panda keeps
   every setting in this browser only, as before. Every request is the user
-  `default` for now. Settings → General shows whether sync is on.
+  `default` for now. Settings → General shows whether sync is on. The
+  first device seeds the store; a later device keeps a copy of the values
+  it replaces under `panda.sync.backup:<key>` in its browser.
 - **The chat box grows with its text** — the box grows one line at a time
   as the text grows, and shrinks when text is deleted or the message is
   sent. Typed text, pasted text, a restored draft and a command completion

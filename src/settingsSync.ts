@@ -37,11 +37,17 @@ export type SyncedKey = (typeof SYNCED_KEYS)[number];
 const REVS_KEY = 'panda.sync.revs';
 const ETAG_KEY = 'panda.sync.etag';
 const CHANGED_KEY = 'panda.sync.changed';
+/** Prefix of the copy this browser keeps of a value it had before the first
+ * sync, when the server's value replaced it (see `apply`, rule 1). */
+export const BACKUP_KEY_PREFIX = 'panda.sync.backup:';
 
 export const SETTINGS_ENDPOINT = '/api/settings';
 export const PUSH_DEBOUNCE_MS = 400;
 export const PULL_INTERVAL_MS = 60_000;
 export const BOOT_WAIT_MS = 1500;
+/** A request with no answer ends after this time, so a pull that hangs does
+ * not hold every later pull (`pull` runs one request at a time). */
+export const REQUEST_TIMEOUT_MS = 10_000;
 
 /** localStorage-shaped backend. */
 export interface KeyValueStorage {
@@ -106,6 +112,13 @@ function isSnapshot(value: unknown): value is Snapshot {
 function isJsonResponse(response: Response): boolean {
   const type = response.headers.get('content-type') ?? '';
   return /^application\/json\s*(;|$)/i.test(type);
+}
+
+/** A signal that ends a request after REQUEST_TIMEOUT_MS, where the runtime has one. */
+function requestTimeout(): AbortSignal | undefined {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    : undefined;
 }
 
 function isSyncedKey(key: string): key is SyncedKey {
@@ -238,6 +251,22 @@ export function createSettingsSync(deps: SettingsSyncDeps = {}): SettingsSync {
     }
   }
 
+  /**
+   * Keeps a copy of the value this browser had before its first sync of
+   * `key`. The first device seeds the server, and each later device takes
+   * the server's value, so a later device would lose its own agents and
+   * layout with no way back. The copy stays in this browser only.
+   */
+  function backupBeforeFirstSync(key: SyncedKey, serverValue: unknown): void {
+    try {
+      const local = raw().getItem(key);
+      if (local === null || local === serverValue) return;
+      raw().setItem(`${BACKUP_KEY_PREFIX}${key}`, local);
+    } catch (err) {
+      console.warn(`[panda/sync] could not keep a copy of the local ${key}`, err);
+    }
+  }
+
   // --- push
 
   function schedulePush(key: SyncedKey): void {
@@ -274,6 +303,7 @@ export function createSettingsSync(deps: SettingsSyncDeps = {}): SettingsSync {
           body: JSON.stringify({ value, baseRev }),
           credentials: 'same-origin',
           cache: 'no-store',
+          signal: requestTimeout(),
         });
       } catch {
         return; // network failure: the changed mark stays, the next pull retries
@@ -318,6 +348,7 @@ export function createSettingsSync(deps: SettingsSyncDeps = {}): SettingsSync {
       if (entry !== undefined) {
         if (entry.rev !== baseRev) {
           // Rule 1: the server changed the key since this browser last saw it.
+          if (baseRev === 0) backupBeforeFirstSync(key, entry.value);
           if (writeLocal(key, entry.value)) refreshed.push(key);
           setBaseRev(key, entry.rev);
           setChanged(key, false);
@@ -359,7 +390,12 @@ export function createSettingsSync(deps: SettingsSyncDeps = {}): SettingsSync {
     if (etag !== null) headers['If-None-Match'] = etag;
     let response: Response;
     try {
-      response = await doFetch(SETTINGS_ENDPOINT, { headers, credentials: 'same-origin', cache: 'no-store' });
+      response = await doFetch(SETTINGS_ENDPOINT, {
+        headers,
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal: requestTimeout(),
+      });
     } catch {
       setStatus({ state: 'off' });
       return;

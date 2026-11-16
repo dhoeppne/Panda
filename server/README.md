@@ -30,6 +30,24 @@ settings(user TEXT NOT NULL, key TEXT NOT NULL, value TEXT, rev INTEGER NOT NULL
   each agent. Secret MCP fields never reach `localStorage`, so they never
   reach this store either.
 
+## The first sync of a device
+
+The first device that connects seeds the server with its own settings. Each
+later device takes the server's values, which replace its own.
+
+Before a device replaces one of its own values for the first time, Panda
+keeps a copy in that browser under `panda.sync.backup:<key>`, for example
+`panda.sync.backup:panda.nav`. The copy stays in that browser and is never
+sent. To bring a copy back, write it to the key again in the browser console:
+
+```js
+localStorage.setItem('panda.nav', localStorage.getItem('panda.sync.backup:panda.nav'));
+```
+
+Then reload the page. Panda does not see a write from the console, so
+change any setting of that kind in Panda once (for example, collapse a
+section). That change sends the restored value to the server.
+
 ## Users
 
 Every request is the user `default` for now. `userOf(request)` in

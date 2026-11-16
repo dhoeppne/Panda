@@ -139,6 +139,42 @@ describe('settingsSync pull', () => {
     expect(server.puts).toEqual([]);
   });
 
+  it('keeps a copy of the local value when the first sync replaces it', async () => {
+    const { server, storage, sync } = setup();
+    storage.setItem('panda.nav', 'phone-layout');
+    storage.setItem('panda.theme', 'matcha');
+    server.seed('panda.nav', 'desktop-layout', 3);
+    server.seed('panda.theme', 'matcha', 4);
+
+    await sync.pull();
+    await flush();
+
+    expect(storage.getItem('panda.nav')).toBe('desktop-layout');
+    expect(storage.getItem('panda.sync.backup:panda.nav')).toBe('phone-layout');
+    // An equal value needs no copy.
+    expect(storage.getItem('panda.sync.backup:panda.theme')).toBeNull();
+
+    // A later server change replaces a value this browser already synced: no new copy.
+    server.seed('panda.nav', 'desktop-layout-2', 5);
+    await sync.pull();
+    await flush();
+    expect(storage.getItem('panda.nav')).toBe('desktop-layout-2');
+    expect(storage.getItem('panda.sync.backup:panda.nav')).toBe('phone-layout');
+    expect(server.puts).toEqual([]);
+  });
+
+  it('gives each request a time limit', async () => {
+    const { storage, sync, fetchSpy, timers } = setup();
+    await sync.pull();
+    storage.setItem('unrelated', 'x');
+    sync.storage.setItem('panda.theme', 'matcha');
+    timers.advance(PUSH_DEBOUNCE_MS);
+    await flush();
+
+    expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    for (const [, init] of fetchSpy.mock.calls) expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('rule 2: a local value the server lacks seeds the server', async () => {
     const { server, storage, sync } = setup();
     storage.setItem('panda.profiles', '[{"id":"a"}]');
