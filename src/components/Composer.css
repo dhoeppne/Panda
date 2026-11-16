@@ -210,6 +210,26 @@
   position: relative;
 }
 
+/* Phone width: a popover anchored to its button runs off the right edge
+ * (the settings card is 360px wide and its button sits right of center).
+ * The bottom-row popovers anchor to the composer card instead, like the
+ * skills menu, and take its width, so each one stays in the viewport. */
+@media (max-width: 480px) {
+  .composer-config-anchor,
+  .composer-card .family-picker,
+  .composer-card .mode-picker {
+    position: static;
+  }
+  .composer-card .config-panel-card,
+  .composer-card .family-picker-menu,
+  .composer-card .mode-picker-menu {
+    left: 0;
+    right: 0;
+    width: auto;
+    min-width: 0;
+  }
+}
+
 .composer-file-input {
   display: none;
 }

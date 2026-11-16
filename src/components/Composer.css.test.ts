@@ -54,3 +54,31 @@ describe('composer text field grows with its text', () => {
     expect(rule('.composer-grow::after')).toMatch(/visibility:\s*hidden/);
   });
 });
+
+describe('composer bottom-row popovers at phone width', () => {
+  /** The body of the `@media (max-width: 480px)` block that holds `marker`. */
+  function phoneBlock(marker: string): string {
+    const blocks = css.split('@media (max-width: 480px)').slice(1);
+    const block = blocks.find((b) => b.includes(marker));
+    if (block === undefined) throw new Error(`no phone-width block with ${marker}`);
+    return block;
+  }
+
+  it('anchors each popover to the composer card, not to its button', () => {
+    const block = phoneBlock('.composer-config-anchor');
+    expect(block).toMatch(
+      /\.composer-config-anchor,\s*\.composer-card \.family-picker,\s*\.composer-card \.mode-picker\s*\{\s*position:\s*static;/,
+    );
+  });
+
+  it('spans each popover across the card, so its right edge stays in the viewport', () => {
+    const block = phoneBlock('.composer-config-anchor');
+    const rule = block.match(
+      /\.composer-card \.config-panel-card,\s*\.composer-card \.family-picker-menu,\s*\.composer-card \.mode-picker-menu\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(rule).toBeDefined();
+    for (const declaration of [/left:\s*0;/, /right:\s*0;/, /width:\s*auto;/, /min-width:\s*0;/]) {
+      expect(rule).toMatch(declaration);
+    }
+  });
+});

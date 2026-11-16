@@ -6,7 +6,7 @@ import { INTERACTIVE_CONTROL_SELECTOR } from './components/scrollPolicy';
 import { MessageStream } from './components/MessageStream';
 import { EmptyState } from './components/EmptyState';
 import { AuthGate } from './components/AuthGate';
-import { StatusBar } from './components/StatusBar';
+import { agentLabel, StatusBar } from './components/StatusBar';
 import { Composer } from './components/Composer';
 import { lastTurnStopped, useMessageQueueDrain } from './messageQueue';
 import { PlanDock } from './components/PlanDock';
@@ -251,7 +251,7 @@ function MainScreen() {
     ? t(settingsSectionMeta?.titleKey ?? 'settings.title')
     : showNewChat
       ? t('side.newChat')
-      : (activeSession?.title ?? connection.agentName ?? t('app.liveSessionTitle'));
+      : (activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
   const headerMeta = onSettings
     ? (settingsSectionMeta ? t(settingsSectionMeta.descKey) : null)
     : showNewChat
@@ -389,6 +389,7 @@ function MainScreen() {
             <StatusBar
               doc={doc}
               connection={connection}
+              familyName={foregroundFamily?.name ?? null}
               onAuthenticate={live.authenticate}
             />
             <Composer
