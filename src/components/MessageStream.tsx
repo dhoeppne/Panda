@@ -31,6 +31,7 @@ import {
   isUserScrollInput,
   scrollIntent,
   stickDecision,
+  sticksOnResize,
   userScrollWindowEnd,
 } from './scrollPolicy';
 import type { AttachedPermission, StreamItem } from '../projector/messageStream';
@@ -210,6 +211,22 @@ export function MessageStream({ onResolvePermission, onResolveElicitation, onOpe
     },
     [],
   );
+
+  // The composer grows with its text and shrinks on send, so the stream's
+  // viewport changes height while the content stays the same. A pinned
+  // stream sticks at once (scrollPolicy.ts sticksOnResize).
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return undefined;
+    let height = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const next = el.clientHeight;
+      if (sticksOnResize(pinnedRef.current, height, next)) runStick();
+      height = next;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [runStick]);
 
   // Settling janitor: scrollToIndex can land short while Virtuoso's size
   // measurements are still settling (burst replays, late image loads, recalc

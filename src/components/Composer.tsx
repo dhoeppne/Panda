@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, ListPlus, Paperclip, Play, SlidersHorizontal, Square, X } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import {
@@ -24,6 +24,7 @@ import {
 import { ConfigPanelCard } from './ConfigPanel';
 import { usePopoverDismiss } from './usePopoverDismiss';
 import { ContentColumn } from './ContentColumn';
+import { followsCaretToEnd, useComposerInputMaxHeight } from './composerSizing';
 import { ModePicker } from './ModePicker';
 import './Composer.css';
 import { useI18n } from '../i18n/context';
@@ -149,6 +150,22 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   }, [configOpen, disabled, closeConfig]);
   useEffect(closeConfig, [sessionKey]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputMaxHeight = useComposerInputMaxHeight();
+  // Runs after the text field took its new height for this value.
+  useLayoutEffect(() => {
+    const field = inputRef.current;
+    if (
+      field &&
+      followsCaretToEnd({
+        focused: document.activeElement === field,
+        selectionEnd: field.selectionEnd,
+        length: field.value.length,
+      })
+    ) {
+      field.scrollTop = field.scrollHeight;
+    }
+  }, [value]);
   const promptContent = buildPromptContent(attachments, value);
   const action = submitAction({ hasContent: promptContent.length > 0, disabled, canQueue });
   const canSend = action === 'send';
@@ -344,20 +361,33 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
                 e.target.value = '';
               }}
             />
-            <textarea
-              rows={1}
-              value={value}
-              disabled={inputLocked}
-              placeholder={hint ?? t('composer.placeholder')}
-              onChange={(e) => {
-                setDraft({ value: e.target.value });
-                setCommandIndex(0);
-                setCommandsDismissed(false);
-              }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              className="focus-outline-none composer-input"
-            />
+            {/* The wrapper sizes the textarea to its text (Composer.css,
+              * .composer-grow): data-value feeds the invisible replica. */}
+            <div
+              className="composer-grow"
+              data-value={value}
+              style={
+                inputMaxHeight === null
+                  ? undefined
+                  : ({ '--composer-input-max': `${inputMaxHeight}px` } as React.CSSProperties)
+              }
+            >
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={value}
+                disabled={inputLocked}
+                placeholder={hint ?? t('composer.placeholder')}
+                onChange={(e) => {
+                  setDraft({ value: e.target.value });
+                  setCommandIndex(0);
+                  setCommandsDismissed(false);
+                }}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                className="focus-outline-none composer-input"
+              />
+            </div>
           </div>
           <div className="composer-footer">
             <div className="composer-footer-lead">

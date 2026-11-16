@@ -8,6 +8,14 @@ follow the releases published from this repository.
 
 ### Added
 
+- **The chat box grows with its text** — the box grows one line at a time
+  as the text grows, and shrinks when text is deleted or the message is
+  sent. Typed text, pasted text, a restored draft and a command completion
+  size it the same way. The box stops at 40% of the visible viewport
+  height, which shrinks when the iOS on-screen keyboard opens. Past that
+  height the box scrolls inside, and a paste at the end keeps the caret in
+  view. A message stream pinned to the bottom stays at the bottom while
+  the box changes height.
 - **Queue messages mid-turn** — while a turn runs or waits for approval,
   the composer stays writable: Enter (or the Queue button next to Stop)
   holds the message in a per-session queue shown above the composer. Each

@@ -61,6 +61,17 @@ export function stickDecision(now: number, lastStickAt: number, trailingSchedule
   return { kind: 'trailing', delayMs: STICK_INTERVAL_MS - elapsed };
 }
 
+/**
+ * True when a change of the stream's viewport height should stick the
+ * stream to the bottom right away. The composer grows with its text and
+ * shrinks on send, which moves the stream's bottom edge. A pinned stream
+ * follows at once, instead of waiting for the settling janitor. An
+ * unpinned stream stays where the user left it.
+ */
+export function sticksOnResize(pinned: boolean, previousHeight: number, nextHeight: number): boolean {
+  return pinned && previousHeight !== nextHeight;
+}
+
 /** The expiry timestamp of the user-scroll window opened at `now`. */
 export function userScrollWindowEnd(now: number): number {
   return now + USER_SCROLL_WINDOW_MS;
