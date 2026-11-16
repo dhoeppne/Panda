@@ -9,6 +9,18 @@ import { ContentColumn } from './ContentColumn';
 import './StatusBar.css';
 import { useI18n } from '../i18n/context';
 
+/**
+ * The name the status bar and the header show for the foreground link: the
+ * family (the saved profile) the user picked, else the name the agent
+ * reported at `initialize`. A creche door reports no `agentInfo`, so without
+ * the family the label read "unknown agent". The profile id stays the same
+ * across `session/load` and a reconnect, so the label does too. A custom
+ * address has no profile and keeps the reported name.
+ */
+export function agentLabel(familyName: string | null, agentName: string | null): string | null {
+  return familyName ?? agentName;
+}
+
 const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 /** Whole budgets stay whole ("$60"); spend keeps cents ("$12.40"). */
 const formatDollars = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`);
@@ -16,11 +28,13 @@ const formatDollars = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFi
 /** Session state + live connection on the left, context-usage meter, cost
  * and the agent family's daily spend (creche `_meta`) on the right. Status meaning comes from the lifecycle projection (#53):
  * this component only maps a ConnectionPhase to pixels. */
-export function StatusBar({ doc, connection, onAuthenticate }: {
+export function StatusBar({ doc, connection, familyName, onAuthenticate }: {
   doc: SessionDocument;
   /** Display facts (agentName, url) — the status interpretation lives in
    * the lifecycle projection, consumed below. */
   connection: ConnectionInfo;
+  /** The foreground family's name, or null for a custom address. */
+  familyName: string | null;
   /** v1 auth entry (#90): runs one agent-managed login method. */
   onAuthenticate?: (methodId: string) => void;
 }) {
@@ -64,7 +78,7 @@ export function StatusBar({ doc, connection, onAuthenticate }: {
               <>
                 <StatusDot variant="success" label={t('conn.connected')} />
                 <span className="truncate statusbar-agent" title={connection.url ?? undefined}>
-                  {connection.agentName}
+                  {agentLabel(familyName, connection.agentName)}
                 </span>
                 {connection.authedMethodId ? (
                   <span
