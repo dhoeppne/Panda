@@ -7,6 +7,7 @@ import {
   __setDefaultClientFactory,
   __setTestTransportFactory,
   connectLiveConnection,
+  connectProfilesInBackground,
   deleteLiveSession,
   disconnectLiveConnection,
   foregroundConnection,
@@ -19,6 +20,7 @@ import {
   removeLiveConnection,
   restoreEndpointSessions,
   seedProfileSlots,
+  startChatSession,
   sweepFailedDirectSlots,
   testLiveTarget,
   type SessionStorage,
@@ -1299,5 +1301,68 @@ describe('testLiveTarget (#221: handshake-then-drop probe)', () => {
       ok: false,
       error: 'Could not connect — make sure the agent is running at this address and the path points at its ACP endpoint',
     });
+  });
+});
+
+describe('merged chat list connects (navigation redesign)', () => {
+  it('connects every family once in the background without taking the foreground', async () => {
+    const stubs = installStubClients();
+    await connectedStub('agent-a', stubs, 's-a');
+    connectProfilesInBackground([profile('agent-a'), profile('agent-b'), profile('agent-c')]);
+    connectProfilesInBackground([profile('agent-b')]);
+    expect(stubs).toHaveLength(3);
+    expect(stubs[1]!.client.connect).toHaveBeenCalledWith(expect.anything(), '/agent-b', undefined);
+    expect(usePanda.getState().activeConnectionId).toBe('agent-a');
+    expect(usePanda.getState().activeSessionId).toBe('s-a');
+  });
+
+  it('a background family reconnects without pulling the foreground away', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectedStub('agent-b', stubs, 's-b');
+      await connectedStub('agent-a', stubs, 's-a');
+      expect(usePanda.getState().activeConnectionId).toBe('agent-a');
+      stubs[0]!.handlers.onDisconnected('network dropped');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(2);
+      expect(usePanda.getState().activeConnectionId).toBe('agent-a');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts a chat with session/new on a connected family', async () => {
+    const stubs = installStubClients();
+    await connectedStub('agent-a', stubs, 's-old');
+    vi.mocked(stubs[0]!.client.newSession).mockImplementation(async () => {
+      stubs[0]!.handlers.onSessionId('s-new', '/agent-a');
+    });
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+    expect(stubs[0]!.client.newSession).toHaveBeenCalledWith('/agent-a');
+    expect(usePanda.getState().activeConnectionId).toBe('agent-a');
+  });
+
+  it('connects an offline family with the new-session intent', async () => {
+    const stubs = installStubClients();
+    __setDefaultClientFactory((handlers) => {
+      const client = {
+        connect: vi.fn(async () => {
+          handlers.onSessionId('s-new', '/agent-a');
+          handlers.onConnected({ agentName: 'a', protocolVersion: 1 });
+        }),
+        disconnect: vi.fn(() => handlers.onDisconnected(null)),
+      } as unknown as LiveAcpClient;
+      stubs.push({ handlers, client });
+      return client;
+    });
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+    expect(stubs[0]!.client.connect).toHaveBeenCalledWith(expect.anything(), '/agent-a', { intent: 'new-session' });
+  });
+
+  it('reports false when session/new left the old session in place', async () => {
+    const stubs = installStubClients();
+    await connectedStub('agent-a', stubs, 's-old');
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(false);
   });
 });

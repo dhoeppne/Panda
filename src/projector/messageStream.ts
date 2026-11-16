@@ -313,3 +313,94 @@ function findStreamingBlock(doc: SessionDocument): Block | null {
   }
   return null;
 }
+
+/**
+ * A run of consecutive tool calls folded into one collapsed row, so a long
+ * agent turn does not bury the conversation in cards. Members render inside
+ * the group when it is open; calls that need the user (a pending approval)
+ * or that failed stay outside, as plain items right after the group.
+ */
+export type ToolGroupItem = {
+  key: string;
+  kind: 'tool_group';
+  members: BlockFlatItem[];
+};
+
+export type StreamItem = FlatItem | ToolGroupItem;
+
+/** A run needs at least this many groupable calls to fold; fewer stay plain cards. */
+export const MIN_TOOL_GROUP_SIZE = 2;
+
+const groupedDocCache = new WeakMap<SessionDocument, StreamItem[]>();
+/** Keyed on the first member: one cached group per run, reused while its members are unchanged. */
+const toolGroupCache = new WeakMap<BlockFlatItem, ToolGroupItem>();
+
+const isToolCallItem = (item: FlatItem | undefined): item is BlockFlatItem =>
+  item?.kind === 'block' && item.block.kind === 'tool_call';
+
+/** A call the user must see without opening a group: it waits for an answer or it failed. */
+function staysOutsideGroup(item: BlockFlatItem): boolean {
+  return (
+    item.permission?.state === 'pending' ||
+    (item.block.kind === 'tool_call' && item.block.call.status === 'failed')
+  );
+}
+
+/**
+ * The stream the list renders: {@link projectMessageStream} with each run of
+ * consecutive tool calls inside one turn folded into a {@link ToolGroupItem}.
+ * Any other block (message, thought, notice) and every turn boundary ends a
+ * run. Works on the document alone, so a live turn and the same turn replayed
+ * by session/load group the same way.
+ */
+export function projectGroupedStream(doc: SessionDocument): StreamItem[] {
+  const cached = groupedDocCache.get(doc);
+  if (cached) return cached;
+
+  const flat = projectMessageStream(doc);
+  // projectMessageStream lists one block item per turn block, in flow order,
+  // before any trailing card: the turn of item i follows from the turn sizes.
+  const turnOf: number[] = [];
+  doc.turns.forEach((turn, t) => turn.blocks.forEach(() => turnOf.push(t)));
+
+  const out: StreamItem[] = [];
+  let i = 0;
+  while (i < flat.length) {
+    const item = flat[i]!;
+    if (!isToolCallItem(item) || i >= turnOf.length) {
+      out.push(item);
+      i++;
+      continue;
+    }
+    const run: BlockFlatItem[] = [];
+    while (i < turnOf.length && isToolCallItem(flat[i]) && turnOf[i] === turnOf[i - run.length]) {
+      run.push(flat[i] as BlockFlatItem);
+      i++;
+    }
+    const members = run.filter((call) => !staysOutsideGroup(call));
+    if (members.length < MIN_TOOL_GROUP_SIZE) {
+      out.push(...run);
+      continue;
+    }
+    out.push(toolGroupItem(`group-${run[0]!.key}`, members));
+    out.push(...run.filter(staysOutsideGroup));
+  }
+
+  groupedDocCache.set(doc, out);
+  return out;
+}
+
+function toolGroupItem(key: string, members: BlockFlatItem[]): ToolGroupItem {
+  const cached = toolGroupCache.get(members[0]!);
+  if (
+    cached &&
+    cached.key === key &&
+    cached.members.length === members.length &&
+    cached.members.every((member, i) => member === members[i])
+  ) {
+    return cached;
+  }
+  const item: ToolGroupItem = { key, kind: 'tool_group', members };
+  toolGroupCache.set(members[0]!, item);
+  return item;
+}

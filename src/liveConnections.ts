@@ -381,6 +381,10 @@ function scheduleAutomaticReconnect(entry: LiveConnection): void {
       {
         resume: slot.connection.sessionId !== null,
         profileId: entry.profileId,
+        // Every family stays connected for the merged chat list: a background
+        // family's reconnect must not pull the foreground away from the chat
+        // the user is reading.
+        background: usePanda.getState().activeConnectionId !== entry.connectionId,
       },
       'automatic',
     );
@@ -646,6 +650,9 @@ export type LiveConnectOptions = {
   resume?: boolean;
   profileId?: string | null;
   sessionIntent?: 'new-session';
+  /** Connect without claiming the foreground: the start-up connect of every
+   * family, which only fills the merged chat list. */
+  background?: boolean;
 };
 
 /**
@@ -716,7 +723,8 @@ async function connectLiveConnectionInternal(
   entry.pendingProfile = opts?.profileId
     ? { id: opts.profileId, target: normalizedTarget, workspace: normalizedWorkspace }
     : null;
-  usePanda.getState().ensureConnection(connectionId);
+  if (opts?.background) usePanda.getState().seedConnection(connectionId);
+  else usePanda.getState().ensureConnection(connectionId);
   const resumeSessionId = opts?.resume
     ? usePanda.getState().connections[connectionId]?.connection.sessionId ?? null
     : null;
@@ -1065,6 +1073,52 @@ export function reconcileProfileSlots(profiles: AgentProfile[]): void {
   }
 }
 
+/** Profiles connected by `connectProfilesInBackground` in this page life. */
+const backgroundConnected = new Set<string>();
+
+/**
+ * Connects every family once per page life, in the background (merged chat
+ * list): `initialize` + `session/list` only — a plain connect creates no
+ * session, and the door answers both without booting a VM. A slot that is
+ * already connecting, connected or errored is left alone; a later drop
+ * reconnects through the usual paths, not through here.
+ */
+export function connectProfilesInBackground(profiles: AgentProfile[]): void {
+  for (const profile of profiles) {
+    if (backgroundConnected.has(profile.id)) continue;
+    const slot = usePanda.getState().connections[profile.id];
+    if (slot && slot.connection.status !== 'disconnected') continue;
+    backgroundConnected.add(profile.id);
+    void connectLiveConnection(profile.id, profileToLiveTarget(profile), profile.workspace, {
+      profileId: profile.id,
+      background: true,
+    });
+  }
+}
+
+/**
+ * Creates a new session on one family for the new-chat view's first send:
+ * `session/new` on a live link, else a connect with the new-session intent.
+ * Either way the family's connection takes the foreground. Resolves true
+ * once the connection holds a session it did not hold before; false when
+ * the connect or `session/new` failed (the failure is already reported on
+ * the connection).
+ */
+export async function startChatSession(profile: AgentProfile): Promise<boolean> {
+  const before = usePanda.getState().connections[profile.id]?.connection ?? null;
+  const previousSessionId = before?.sessionId ?? null;
+  if (before?.status === 'connected' && liveConnections.has(profile.id)) {
+    await newLiveSession(workspaceToCwd(profile.workspace), profile.id);
+  } else {
+    await connectLiveConnection(profile.id, profileToLiveTarget(profile), profile.workspace, {
+      profileId: profile.id,
+      sessionIntent: 'new-session',
+    });
+  }
+  const after = usePanda.getState().connections[profile.id]?.connection ?? null;
+  return after?.status === 'connected' && after.sessionId !== null && after.sessionId !== previousSessionId;
+}
+
 /**
  * Opens one session of any connection (sidebar click, issue #21's 双指针
  * 联动): the connection is foregrounded first, then — live connections
@@ -1258,6 +1312,7 @@ export function __resetLiveConnections(): void {
     entry.client.disconnect();
   }
   liveConnections.clear();
+  backgroundConnected.clear();
   clientFactories.clear();
   defaultClientFactory = null;
   activePermissionPolicy = alwaysAskPolicy;

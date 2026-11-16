@@ -13,13 +13,13 @@ import { useMemo } from 'react';
 import { useActiveConnection, useActiveDoc, useActiveSwitching, usePanda } from '../store';
 import type { ForegroundSessionController } from '../session-controller';
 import { modeStateFromConfigOptions } from '../protocol/modes';
-import { projectMessageStream, type FlatItem } from './messageStream';
+import { projectGroupedStream, type StreamItem } from './messageStream';
 import { connectionLifecycle, connectionPhase, foregroundLifecycle, mainView, type ConnectionLifecycle, type ForegroundLifecycle, type MainView } from './connectionLifecycle';
 
-/** The virtualized stream's item list; item identities survive unrelated churn. */
-export function useMessageStreamItems(): FlatItem[] {
+/** The virtualized stream's item list, tool runs grouped; item identities survive unrelated churn. */
+export function useMessageStreamItems(): StreamItem[] {
   const doc = useActiveDoc();
-  return useMemo(() => projectMessageStream(doc), [doc]);
+  return useMemo(() => projectGroupedStream(doc), [doc]);
 }
 
 /**

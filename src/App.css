@@ -103,3 +103,42 @@
   font-size: var(--panda-size-micro);
   color: var(--color-muted);
 }
+
+/* New-chat view (navigation redesign): the greeting and the composer sit
+ * together in the middle of the column, like the first-message screen of
+ * every chat app. The composer keeps its own column width. */
+.new-chat {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding-block: 24px;
+  overflow-y: auto;
+}
+
+.new-chat-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 16px;
+  text-align: center;
+}
+
+.new-chat-title {
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.new-chat-hint {
+  margin: 0;
+  max-width: 42ch;
+  font-size: var(--panda-size-chrome);
+  line-height: 1.5;
+  color: var(--color-muted);
+}

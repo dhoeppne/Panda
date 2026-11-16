@@ -18,7 +18,11 @@ import {
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
 import { navigate, useHashRoute } from './routes';
-import { composerDraftKey } from './composerDrafts';
+import { composerDraftKey, useComposerDrafts } from './composerDrafts';
+import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
+import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
+import { notifyUser } from './userNotice';
+import type { AcpContentBlock } from './protocol/types';
 import { SettingsPage, SETTINGS_SECTIONS, type SettingsSectionId } from './components/SettingsPage';
 import { useLiveSession } from './useLiveSession';
 import { UserNoticeToasts } from './components/UserNoticeToasts';
@@ -76,6 +80,39 @@ function MainScreen() {
   // an anchor-keyed key would collapse every offline view onto one bucket.
   const foregroundSessionKey = composerDraftKey(activeConnectionId ?? 'none', activeSessionId);
 
+  // The new-chat view (navigation redesign): open on New chat, and whenever
+  // no session is foreground while a family exists. The chat is created on
+  // the first send, on the family the picker names.
+  const profiles = useProfiles();
+  const newChatOpen = useNewChat((s) => s.open);
+  const newChatFamily = resolveNewChatFamily(useNewChat((s) => s.familyId), profiles);
+  const showNewChat = !onSettings && newChatFamily !== null && (newChatOpen || view === 'onboarding');
+  const [starting, setStarting] = useState(false);
+  const newChatDraftKey = composerDraftKey('new-chat', null);
+  const foregroundFamily = profiles.find((profile) => profile.id === activeConnectionId) ?? null;
+
+  const startChat = (content: AcpContentBlock[]) => {
+    if (!newChatFamily || starting) return;
+    setStarting(true);
+    void (async () => {
+      const ok = await live.startChat(newChatFamily);
+      setStarting(false);
+      if (!ok) {
+        // The composer cleared its draft on submit; give the text back so a
+        // failed start loses nothing the user typed.
+        const text = content
+          .filter((block): block is Extract<AcpContentBlock, { type: 'text' }> => block.type === 'text')
+          .map((block) => block.text)
+          .join('\n');
+        useComposerDrafts.getState().setDraft(newChatDraftKey, { value: text });
+        notifyUser('error', t('newChat.startFailed', { name: newChatFamily.name }));
+        return;
+      }
+      useNewChat.getState().close();
+      await controller.send(content);
+    })();
+  };
+
   // Queued messages (messageQueue.ts) go out one per finished turn of the
   // foreground session; a turn that stopped early pauses the queue.
   useMessageQueueDrain({
@@ -94,10 +131,14 @@ function MainScreen() {
   const settingsSectionMeta = SETTINGS_SECTIONS.find((entry) => entry.id === settingsSection);
   const headerTitle = onSettings
     ? t(settingsSectionMeta?.titleKey ?? 'settings.title')
-    : (activeSession?.title ?? connection.agentName ?? t('app.liveSessionTitle'));
+    : showNewChat
+      ? t('side.newChat')
+      : (activeSession?.title ?? connection.agentName ?? t('app.liveSessionTitle'));
   const headerMeta = onSettings
     ? (settingsSectionMeta ? t(settingsSectionMeta.descKey) : null)
-    : (connection.url ?? 'acp');
+    : showNewChat
+      ? null
+      : (connection.url ?? 'acp');
 
   return (
     <div className="app-shell">
@@ -147,6 +188,35 @@ function MainScreen() {
         </header>
         {onSettings ? (
           <SettingsPage section={settingsSection} />
+        ) : showNewChat ? (
+          <div className="new-chat">
+            <div className="new-chat-intro">
+              <h1 className="new-chat-title">{t('newChat.title')}</h1>
+              <p className="new-chat-hint">{t('newChat.hint', { name: newChatFamily.name })}</p>
+            </div>
+            <Composer
+              onSend={startChat}
+              disabled={starting}
+              inputLocked={starting}
+              canQueue={false}
+              hint={starting ? t('newChat.starting', { name: newChatFamily.name }) : t('newChat.placeholder', { name: newChatFamily.name })}
+              canAttachImages={undefined}
+              canStop={false}
+              modes={null}
+              onSetMode={() => {}}
+              commands={[]}
+              configOptions={null}
+              onSetConfigOption={() => {}}
+              sessionKey={newChatDraftKey}
+              family={
+                <FamilyPicker
+                  families={profiles}
+                  currentId={newChatFamily.id}
+                  onPick={(familyId) => useNewChat.getState().pick(familyId)}
+                />
+              }
+            />
+          </div>
         ) : (
           <>
             {doc.plan && doc.plan.length > 0 && <PlanDock entries={doc.plan} />}
@@ -212,6 +282,7 @@ function MainScreen() {
               configOptions={doc.configOptions}
               onSetConfigOption={controller.setConfigOption}
               sessionKey={foregroundSessionKey}
+              family={foregroundFamily && <FamilyLabel family={foregroundFamily} families={profiles} />}
             />
           </>
         )}

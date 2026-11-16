@@ -5,12 +5,12 @@ import {
   authenticateLiveConnection,
   cancelLiveTurn,
   connectLiveConnection,
+  connectProfilesInBackground,
   deleteLiveSession,
   rewindLive,
   disconnectLiveConnection,
   foregroundConnection,
   logoutLiveConnection,
-  newDirectConnectionId,
   newLiveSession,
   openLiveSession,
   persistSessionsSnapshot,
@@ -21,6 +21,7 @@ import {
   resolveLiveElicitation,
   resolveLivePermission,
   sendLive,
+  startChatSession,
   setLiveConfigOption,
   setLiveMode,
   type ReconnectOptions,
@@ -28,7 +29,6 @@ import {
 
 export type { ReconnectOptions };
 import { profileToLiveTarget, type AgentProfile } from './profiles';
-import type { Workspace } from './workspace';
 import type { ForegroundSessionController } from './session-controller';
 
 /**
@@ -55,17 +55,10 @@ export function useLiveSession() {
 
   return useMemo<LiveSessionFacade>(
     () => ({
-      connectDirect: (url: string, workspace: Workspace) =>
-        connectLiveConnection(newDirectConnectionId(), { kind: 'websocket', url }, workspace, {
-          sessionIntent: 'new-session',
-        }),
       connectProfile: (profile: AgentProfile) =>
         connectLiveConnection(profile.id, profileToLiveTarget(profile), profile.workspace, { profileId: profile.id }),
-      connectProfileForNewSession: (profile: AgentProfile) =>
-        connectLiveConnection(profile.id, profileToLiveTarget(profile), profile.workspace, {
-          profileId: profile.id,
-          sessionIntent: 'new-session',
-        }),
+      connectInBackground: connectProfilesInBackground,
+      startChat: startChatSession,
       reconnectForeground: (opts?: ReconnectOptions) =>
         // Row-level actions name their slot (bug hunt #1); the foreground is
         // only the default. Target resolution lives in the manager (testable).
@@ -102,13 +95,12 @@ export function useLiveSession() {
  * member fails here, at the hook, instead of at the call site.
  */
 export interface LiveSessionFacade extends ForegroundSessionController {
-  /** 临时直连: a fresh anonymous slot that dies with its disconnect. */
-  connectDirect: (url: string, workspace: Workspace) => void;
   /** Connects an Agent 配置's slot with its stored url/workspace. */
   connectProfile: (profile: AgentProfile) => void;
-  /** Connects an Agent 配置 and creates the session explicitly requested by
-   * the new-session dialog. */
-  connectProfileForNewSession: (profile: AgentProfile) => void;
+  /** Connects every family once, without taking the foreground (merged chat list). */
+  connectInBackground: typeof connectProfilesInBackground;
+  /** Creates a session on one family for the new-chat view; true once it exists. */
+  startChat: typeof startChatSession;
   /**
    * Reconnects a slot — `opts.connectionId` names the row-level target
    * (error-block buttons); the foreground is the default. Form-edited

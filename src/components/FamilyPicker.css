@@ -1,0 +1,125 @@
+/* Family chip in the composer's bottom-left slot (navigation redesign).
+ * Chrome tier, same pill language as the mode picker. */
+
+.family-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.family-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 26px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--panda-radius-full);
+  background: transparent;
+  color: var(--color-fg);
+  padding: 0 8px 0 4px;
+  font-size: var(--panda-size-chrome);
+  font-weight: 500;
+  transition: var(--panda-colors-transition);
+}
+
+button.family-chip:hover {
+  background: color-mix(in oklab, var(--color-raised) 40%, transparent);
+}
+
+/* An existing chat keeps its family: no border, no chevron, no hover. */
+.family-chip--locked {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--color-raised) 45%, transparent);
+  color: var(--color-muted);
+  padding-right: 10px;
+  cursor: default;
+}
+
+.family-chip-chevron {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  transition: transform 0.15s ease;
+}
+
+.family-chip-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* Opens upward: the chip sits in the composer's bottom row. */
+.family-picker-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--panda-radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-high);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.family-picker-head {
+  padding: 4px 8px 2px;
+  font-size: var(--panda-size-micro);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+}
+
+.family-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: var(--panda-radius-md);
+  background: transparent;
+  color: var(--color-fg);
+  padding: 7px 8px;
+  text-align: left;
+  font-size: var(--panda-size-chrome);
+  transition: var(--panda-colors-transition);
+}
+
+.family-picker-option:hover,
+.family-picker-option:focus-visible {
+  background: color-mix(in oklab, var(--color-raised) 60%, transparent);
+  outline: none;
+}
+
+.family-picker-name {
+  flex: 1;
+}
+
+.family-picker-check {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.family-picker-check--hidden {
+  visibility: hidden;
+}
+
+/* Family badge: the shortest unique prefix of the family name, tinted by
+ * the family's position in the saved list (four tones, any number of
+ * families). Used on sidebar rows and in the chip. */
+.family-badge {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+.family-badge--0 { color: var(--color-text-orange); background: var(--color-background-orange); }
+.family-badge--1 { color: var(--color-text-teal); background: var(--color-background-teal); }
+.family-badge--2 { color: var(--color-text-purple); background: var(--color-background-purple); }
+.family-badge--3 { color: var(--color-text-blue); background: var(--color-background-blue); }
