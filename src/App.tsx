@@ -21,6 +21,7 @@ import { navigate, useHashRoute } from './routes';
 import { composerDraftKey, useComposerDrafts } from './composerDrafts';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
+import { familyCommandSource, sessionCommandSource, type CommandSource } from './commands';
 import { notifyUser } from './userNotice';
 import type { AcpUserContentBlock } from './protocol/types';
 import { SettingsPage, SETTINGS_SECTIONS, type SettingsSectionId } from './components/SettingsPage';
@@ -90,6 +91,19 @@ function MainScreen() {
   const [starting, setStarting] = useState(false);
   const newChatDraftKey = composerDraftKey('new-chat', null);
   const foregroundFamily = profiles.find((profile) => profile.id === activeConnectionId) ?? null;
+  // The `/` menu (commands.ts): a new chat has no session yet, so it shows
+  // the list the picked family sent at `initialize`.
+  const newChatSlot = usePanda((s) => (newChatFamily ? s.connections[newChatFamily.id] : undefined));
+  const newChatCommands: CommandSource = newChatFamily
+    ? familyCommandSource(
+        newChatFamily.name,
+        newChatSlot?.connection.status ?? 'disconnected',
+        newChatSlot?.familyCommands ?? null,
+      )
+    : { kind: 'none' };
+  const foregroundFamilyCommands = usePanda((s) =>
+    activeConnectionId ? (s.connections[activeConnectionId]?.familyCommands ?? null) : null,
+  );
 
   const startChat = (content: AcpUserContentBlock[]) => {
     if (!newChatFamily || starting) return;
@@ -204,7 +218,7 @@ function MainScreen() {
               canStop={false}
               modes={null}
               onSetMode={() => {}}
-              commands={[]}
+              commandSource={newChatCommands}
               configOptions={null}
               onSetConfigOption={() => {}}
               sessionKey={newChatDraftKey}
@@ -282,7 +296,11 @@ function MainScreen() {
               onStop={live.cancel}
               modes={sessionModes.modes}
               onSetMode={sessionModes.onSetMode}
-              commands={doc.availableCommands}
+              commandSource={sessionCommandSource(
+                foregroundFamily?.name ?? connection.agentName ?? '',
+                doc.availableCommands,
+                foregroundFamilyCommands,
+              )}
               configOptions={doc.configOptions}
               onSetConfigOption={controller.setConfigOption}
               sessionKey={foregroundSessionKey}

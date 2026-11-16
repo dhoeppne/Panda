@@ -4,6 +4,7 @@ import { LiveAcpClient } from './acp/LiveAcpClient';
 import { WebSocketTransport } from './acp/transport/WebSocketTransport';
 import type {
   AcpAuthMethod,
+  AcpAvailableCommand,
   AcpConfigOption,
   AcpUserContentBlock,
   AcpSessionModeState,
@@ -493,6 +494,7 @@ function wireHandlers(entry: LiveConnection) {
         delete: caps.delete,
         rewind: caps.rewind,
       }),
+    onFamilyCommands: (commands: AcpAvailableCommand[] | null) => port.setFamilyCommands(commands),
     onSessions: (entries: SessionEntry[]) => reconcileListedSessions(entry, entries),
     onSessionInfo: (sessionId: string, info: { title?: string | null; updatedAt?: string | null }) =>
       port.patchSession(sessionId, info),

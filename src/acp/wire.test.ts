@@ -7,6 +7,7 @@ import {
   toAcpUpdates,
   toConfigOptions,
   toAvailableCommands,
+  toFamilyCommands,
   toSpend,
   toElicitationFormRequest,
   toElicitationUrlRequest,
@@ -599,6 +600,30 @@ describe('toElicitationUrlRequest (url mode whitelisting)', () => {
     expect(toElicitationUrlRequest(withTool as never).toolCallId).toBe('t-9');
     const requestScoped = { requestId: 'r-1', mode: 'url', message: 'm', elicitationId: 'e-2', url: 'https://example.com/b' };
     expect(toElicitationUrlRequest(requestScoped as never).toolCallId).toBe(null);
+  });
+});
+
+describe('toFamilyCommands (initialize _meta["creche/commands"])', () => {
+  it('maps the list of a creche door', () => {
+    const meta = { 'creche/commands': { availableCommands: [{ name: 'grill-me', description: 'Ask.' }] } };
+    expect(toFamilyCommands(meta)).toEqual([{ name: 'grill-me', description: 'Ask.', inputHint: null }]);
+  });
+
+  it('is null when the key is absent, with no warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(toFamilyCommands(undefined)).toBe(null);
+    expect(toFamilyCommands({ other: 1 })).toBe(null);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('is null, with a warning, when the value is malformed', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (const bad of [null, 'x', {}, { availableCommands: 'x' }, { availableCommands: [{ name: 1 }] }]) {
+      expect(toFamilyCommands({ 'creche/commands': bad })).toBe(null);
+    }
+    expect(warnSpy).toHaveBeenCalledTimes(5);
+    warnSpy.mockRestore();
   });
 });
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, ListPlus, Paperclip, Play, SlidersHorizontal, Square, X } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import {
@@ -30,13 +30,15 @@ import type {
 import {
   commandCompletion,
   commandKeyAction,
-  matchCommands,
+  commandMenu,
   wrapIndex,
+  type CommandSource,
 } from '../commands';
 import { ConfigPanelCard } from './ConfigPanel';
 import { FileChip } from './FileChip';
 import { usePopoverDismiss } from './usePopoverDismiss';
 import { ContentColumn } from './ContentColumn';
+import { followsCaretToEnd, useComposerInputMaxHeight } from './composerSizing';
 import { ModePicker } from './ModePicker';
 import './Composer.css';
 import { useI18n } from '../i18n/context';
@@ -112,7 +114,7 @@ export function submitAction(input: {
   return input.canQueue ? 'queue' : 'none';
 }
 
-export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attachAccept, canStop, onStop, modes, onSetMode, commands, configOptions, onSetConfigOption, sessionKey, family }: {
+export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attachAccept, canStop, onStop, modes, onSetMode, commandSource, configOptions, onSetConfigOption, sessionKey, family }: {
   /** The family chip (picker in a new chat, locked label in an existing one). */
   family?: React.ReactNode;
   onSend: (content: AcpUserContentBlock[]) => void;
@@ -140,8 +142,8 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
   /** Session modes from the document; null hides the picker entirely. */
   modes: AcpSessionModeState | null;
   onSetMode: (modeId: string) => void;
-  /** Agent-advertised slash commands; drives the `/` autocomplete panel. */
-  commands: AcpAvailableCommand[];
+  /** Where the `/` menu's list comes from (commands.ts CommandSource). */
+  commandSource: CommandSource;
   /** Agent-advertised session config options; null/[] hides the settings entry. */
   configOptions: AcpConfigOption[] | null;
   onSetConfigOption: (configId: string, value: string | boolean) => void;
@@ -182,6 +184,22 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
   // tells when the drag really left the card.
   const [dragDepth, setDragDepth] = useState(0);
   const accept: AttachmentAccept = attachAccept ?? { image: false, files: false };
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputMaxHeight = useComposerInputMaxHeight();
+  // Runs after the text field took its new height for this value.
+  useLayoutEffect(() => {
+    const field = inputRef.current;
+    if (
+      field &&
+      followsCaretToEnd({
+        focused: document.activeElement === field,
+        selectionEnd: field.selectionEnd,
+        length: field.value.length,
+      })
+    ) {
+      field.scrollTop = field.scrollHeight;
+    }
+  }, [value]);
   const promptContent = buildPromptContent(attachments, value, accept);
   const action = submitAction({ hasContent: promptContent.length > 0, disabled, canQueue });
   const canSend = action === 'send';
@@ -190,7 +208,15 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
   const attachmentDisabled = inputLocked || !acceptsAny(attachAccept);
   // Panel visibility derives from the text (open only while typing the
   // command name); Escape suppresses it until the input changes again.
-  const commandItems = commandsDismissed || inputLocked ? null : matchCommands(commands, value);
+  const menu = commandsDismissed || inputLocked ? null : commandMenu(commandSource, value);
+  const commandItems = menu?.kind === 'list' ? menu.items : [];
+  const menuFamily = menu?.family ?? null;
+  // A family switch swaps the list: the highlight starts at the top again.
+  useEffect(() => setCommandIndex(0), [menuFamily]);
+  const activeCommandRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeCommandRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [commandIndex, menuFamily]);
   const hasConfigOptions = configOptions !== null && configOptions.length > 0;
 
   const completeCommand = (command: AcpAvailableCommand) => {
@@ -245,8 +271,8 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(e.nativeEvent)) return;
-    if (commandItems) {
-      const action = commandKeyAction(e);
+    if (menu) {
+      const action = commandKeyAction(e, commandItems.length);
       if (action) {
         e.preventDefault();
         if (action.type === 'complete') {
@@ -347,31 +373,65 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
               {t('composer.dropFiles')}
             </div>
           )}
-          {commandItems && (
-            <div className="composer-commands" role="listbox" aria-label={t('composer.commands')}>
-              {commandItems.map((command, index) => (
-                <button
-                  key={command.name}
-                  type="button"
-                  role="option"
-                  aria-selected={index === commandIndex}
-                  className={`composer-command ${index === commandIndex ? 'composer-command--active' : ''}`}
-                  // mousedown (not click): completes before the textarea loses
-                  // focus, so typing can continue in the argument right away.
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    completeCommand(command);
-                  }}
-                  onMouseEnter={() => setCommandIndex(index)}
-                >
-                  <span className="composer-command-name">/{command.name}</span>
-                  <span className="composer-command-desc">{command.description}</span>
-                </button>
-              ))}
-              {commandItems[commandIndex]?.inputHint && (
-                <div className="composer-commands-hint">
-                  {t('composer.paramHint', { hint: commandItems[commandIndex].inputHint })}
+          {menu && (
+            <div className="composer-commands">
+              <div className="composer-commands-head">
+                <span>{t('composer.skills', { family: menu.family })}</span>
+                {menu.kind === 'list' && (
+                  <span>
+                    {menu.query
+                      ? t('composer.skillsMatched', { count: String(menu.items.length), total: String(menu.total) })
+                      : String(menu.total)}
+                  </span>
+                )}
+              </div>
+              {menu.kind === 'loading' && (
+                <div className="composer-commands-state" role="status">
+                  <span className="composer-commands-spinner" aria-hidden="true" />
+                  {t('composer.skillsLoading', { family: menu.family })}
                 </div>
+              )}
+              {menu.kind === 'offline' && (
+                <div className="composer-commands-state" role="status">
+                  {t('composer.skillsOffline', { family: menu.family })}
+                </div>
+              )}
+              {menu.kind === 'list' && menu.items.length === 0 && (
+                <div className="composer-commands-state" role="status">
+                  {t('composer.skillsNoMatch', { query: `/${menu.query}` })}
+                </div>
+              )}
+              {commandItems.length > 0 && (
+                <>
+                  <div className="composer-commands-list" role="listbox" aria-label={t('composer.commands')}>
+                    {commandItems.map((command, index) => (
+                      <button
+                        key={command.name}
+                        ref={index === commandIndex ? activeCommandRef : undefined}
+                        type="button"
+                        role="option"
+                        aria-selected={index === commandIndex}
+                        className={`composer-command ${index === commandIndex ? 'composer-command--active' : ''}`}
+                        // mousedown (not click): completes before the textarea loses
+                        // focus, so typing can continue in the argument right away.
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          completeCommand(command);
+                        }}
+                        onMouseEnter={() => setCommandIndex(index)}
+                      >
+                        <span className="composer-command-name">/{command.name}</span>
+                        <span className="composer-command-desc">{command.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {commandItems[commandIndex]?.inputHint && (
+                    <div className="composer-commands-hint">
+                      {t('composer.paramHint', { hint: commandItems[commandIndex].inputHint })}
+                    </div>
+                  )}
+                  <div className="composer-commands-keys">{t('composer.skillsKeys')}</div>
+                </>
               )}
             </div>
           )}
@@ -445,20 +505,33 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
                 e.target.value = '';
               }}
             />
-            <textarea
-              rows={1}
-              value={value}
-              disabled={inputLocked}
-              placeholder={hint ?? t('composer.placeholder')}
-              onChange={(e) => {
-                setDraft({ value: e.target.value });
-                setCommandIndex(0);
-                setCommandsDismissed(false);
-              }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              className="focus-outline-none composer-input"
-            />
+            {/* The wrapper sizes the textarea to its text (Composer.css,
+              * .composer-grow): data-value feeds the invisible replica. */}
+            <div
+              className="composer-grow"
+              data-value={value}
+              style={
+                inputMaxHeight === null
+                  ? undefined
+                  : ({ '--composer-input-max': `${inputMaxHeight}px` } as React.CSSProperties)
+              }
+            >
+              <textarea
+                ref={inputRef}
+                rows={1}
+                value={value}
+                disabled={inputLocked}
+                placeholder={hint ?? t('composer.placeholder')}
+                onChange={(e) => {
+                  setDraft({ value: e.target.value });
+                  setCommandIndex(0);
+                  setCommandsDismissed(false);
+                }}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                className="focus-outline-none composer-input"
+              />
+            </div>
           </div>
           <div className="composer-footer">
             <div className="composer-footer-lead">

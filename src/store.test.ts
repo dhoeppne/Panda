@@ -93,6 +93,19 @@ describe('connection-scoped ports (issue #16)', () => {
     expect(usePanda.getState().connections['live']!.docs['s-1']!.turns).toHaveLength(1);
   });
 
+  it("keeps each family's initialize commands in its own slot, across a drop", () => {
+    usePanda.getState().ensureConnection('principal');
+    usePanda.getState().ensureConnection('creche');
+    const grill = { name: 'grill-me', description: 'Ask.', inputHint: null };
+    connectionStorePort('principal').setFamilyCommands([grill]);
+
+    connectionStorePort('principal').setConnection({ status: 'disconnected' });
+    usePanda.getState().ensureConnection('principal'); // reconnect of the same slot
+
+    expect(usePanda.getState().connections['principal']!.familyCommands).toEqual([grill]);
+    expect(usePanda.getState().connections['creche']!.familyCommands).toBe(null);
+  });
+
   it('isolates two connection slots from each other', () => {
     usePanda.getState().ensureConnection('live-a');
     usePanda.getState().ensureConnection('live-b');

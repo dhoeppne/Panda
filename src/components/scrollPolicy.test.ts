@@ -8,6 +8,7 @@ import {
   isUserScrollInput,
   scrollIntent,
   stickDecision,
+  sticksOnResize,
   userScrollWindowEnd,
 } from './scrollPolicy';
 
@@ -49,6 +50,21 @@ describe('stickDecision (bottom-stick rate limit, #65)', () => {
 
   it('a fresh stick (elapsed 0) schedules the full interval as the trailing delay', () => {
     expect(stickDecision(1000, 1000, false)).toEqual({ kind: 'trailing', delayMs: STICK_INTERVAL_MS });
+  });
+});
+
+describe('sticksOnResize (the composer grows or shrinks under the stream)', () => {
+  it('sticks a pinned stream when its viewport height changes', () => {
+    expect(sticksOnResize(true, 704, 682)).toBe(true);
+    expect(sticksOnResize(true, 509, 704)).toBe(true);
+  });
+
+  it('leaves an unpinned stream where the user scrolled it', () => {
+    expect(sticksOnResize(false, 704, 682)).toBe(false);
+  });
+
+  it('does nothing when only the width changed', () => {
+    expect(sticksOnResize(true, 704, 704)).toBe(false);
   });
 });
 

@@ -91,6 +91,18 @@ export const messages = {
   'composer.placeholder': { en: 'Message Panda…', zh: '给 Panda 发消息…' },
   'composer.commands': { en: 'Slash commands', zh: '斜杠命令' },
   'composer.paramHint': { en: 'Input: {hint}', zh: '参数:{hint}' },
+  'composer.skills': { en: 'Skills · {family}', zh: '技能 · {family}' },
+  'composer.skillsMatched': { en: '{count} of {total}', zh: '{count} / {total}' },
+  'composer.skillsLoading': { en: 'Loading the skills of {family}', zh: '正在加载 {family} 的技能' },
+  'composer.skillsOffline': {
+    en: '{family} is offline. Its skills show here when it reconnects.',
+    zh: '{family} 已离线。重新连接后,这里会显示它的技能。',
+  },
+  'composer.skillsNoMatch': {
+    en: 'No skill starts with {query}. Enter sends the text as typed.',
+    zh: '没有以 {query} 开头的技能。按 Enter 会按原样发送。',
+  },
+  'composer.skillsKeys': { en: '↑↓ select · Enter or Tab insert · Esc close', zh: '↑↓ 选择 · Enter 或 Tab 插入 · Esc 关闭' },
   'composer.removeAttachment': { en: 'Remove {name}', zh: '移除 {name}' },
   'composer.attach': { en: 'Attach files', zh: '添加文件' },
   'composer.attachUnavailable': { en: 'This agent does not take files', zh: '当前 agent 不接收文件' },

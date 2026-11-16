@@ -214,15 +214,46 @@
   display: none;
 }
 
-.composer-input {
-  max-height: 160px; /* max-h-40 */
+/* The text field grows with its text, with no measuring: an invisible
+ * replica of the text (::after) shares one grid cell with the textarea. The
+ * cell takes the replica's height, and the textarea stretches to the cell.
+ * Past the cap both stop, and the textarea scrolls inside. The replica wraps
+ * like the textarea only while both carry the same box and font, so every
+ * property that moves a line break lives in the shared rules below. */
+.composer-grow {
+  display: grid;
   flex: 1;
-  resize: none;
-  background: transparent;
-  padding-block: 6px; /* py-1.5 */
+  min-width: 0;
+}
+.composer-grow::after,
+.composer-input {
+  grid-area: 1 / 1;
+  min-width: 0;
+  /* The cap: composerSizing.ts sets the variable from the visible viewport
+   * height. The fallback serves a browser with no visualViewport. */
+  max-height: var(--composer-input-max, 40dvh);
+  margin: 0;
+  border: 0;
+  padding: 6px 0; /* py-1.5 */
+  font-family: inherit;
   /* Typed text IS content: same 14px as the stream it lands in. */
   font-size: var(--panda-size-content);
+  font-weight: inherit;
   line-height: 1.55;
+  letter-spacing: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.composer-grow::after {
+  /* The trailing space gives a final empty line its height. */
+  content: attr(data-value) ' ';
+  visibility: hidden;
+  overflow: hidden;
+}
+.composer-input {
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
   outline: none;
 }
 .composer-input::placeholder {
@@ -231,8 +262,10 @@
 
 /* iOS WebKit zooms a focused form control whose text is below 16px. Limit
  * the exception to touch-oriented devices; max() preserves larger user font
- * settings, and pinch zoom stays available because the viewport is unchanged. */
+ * settings, and pinch zoom stays available because the viewport is unchanged.
+ * The replica takes the same size, or its lines would break elsewhere. */
 @media (pointer: coarse) {
+  .composer-grow::after,
   .composer-input {
     font-size: max(16px, var(--panda-size-content));
   }
@@ -325,4 +358,75 @@
   font-weight: 600;
   /* Child enter/leave events would flicker the overlay; the card owns them. */
   pointer-events: none;
+}
+
+/* Header: the family whose skills these are, and the match count. */
+.composer-commands-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 14px 5px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--panda-size-micro);
+  color: var(--color-muted);
+}
+
+/* A family grants about 15 skills: the list scrolls inside the menu so the
+ * menu stays between the top of the view and the chat bar, also with an
+ * on-screen keyboard open. */
+.composer-commands-list {
+  max-height: min(248px, 40dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* No match, loading, offline: one line of muted text (informative, AA). */
+.composer-commands-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: var(--panda-size-chrome);
+  color: var(--color-muted);
+}
+
+.composer-commands-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: composer-commands-spin 0.9s linear infinite;
+}
+
+@keyframes composer-commands-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-commands-spinner { animation: none; }
+}
+
+.composer-commands-keys {
+  padding: 6px 14px;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--panda-size-micro);
+  color: var(--color-faint);
+}
+
+/* Touch: no keys to name. */
+@media (pointer: coarse) {
+  .composer-commands-keys { display: none; }
+}
+
+/* Phone width: the name sits over one line of its description. */
+@media (max-width: 480px) {
+  .composer-command {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+    padding: 8px 12px;
+  }
+  .composer-commands-list { max-height: min(214px, 34dvh); }
 }

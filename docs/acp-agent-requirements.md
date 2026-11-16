@@ -166,7 +166,7 @@ Panda 注册的 client 侧 handler 全集:
 | 10 | 会话关闭 | `sessionCapabilities.close` + `session/close` | agent 运行态泄漏,直到进程重启 | 二 |
 | 11 | 登录 | `authMethods` + `authenticate` + `logout` + `-32000` | 要登录却不声明:直接断连(事实上的必须) | 三 |
 | 12 | 计划坞 | `plan` / `plan_update`(items 变体) | 计划性长任务无进度锚点 | 三 |
-| 13 | 命令补全 | `available_commands_update` | 无斜杠命令自动补全 | 三 |
+| 13 | 命令补全 | `available_commands_update`;creche 的 door 还在 `initialize` 响应里带上家族的命令列表,`_meta["creche/commands"]` = `{availableCommands}`,新对话在 `session/new` 之前即可列出 | 无斜杠命令自动补全 | 三 |
 | 14 | 会话模式 | `modes` + `session/set_mode` + `current_mode_update` | 无模式切换器 | 三 |
 | 15 | 上下文压缩 | `compaction_update` + `compaction_summary_chunk` | transcript 无解释地突变 | 三 |
 | 16 | 回退(creche 扩展) | `agentCapabilities._meta["creche/rewind"]` + `_creche/session/rewind` `{sessionId, messageId}` → `{}`;每个 `user_message_chunk`(实时回显与回放)都带 `messageId` | 无法把对话退回到更早的消息 | 三 |
