@@ -163,7 +163,7 @@ None of these are entry requirements, but each omission has a clear user-visible
 | 10 | Session close | `sessionCapabilities.close` + `session/close` | agent runtime state leaks until process restart | 2 |
 | 11 | Login | `authMethods` + `authenticate` + `logout` + `-32000` | gated without declaring: instant disconnect (de-facto MUST) | 3 |
 | 12 | Plan dock | `plan` / `plan_update` (items variant) | no progress anchor on planned long tasks | 3 |
-| 13 | Command completion | `available_commands_update` | no slash-command autocomplete | 3 |
+| 13 | Command completion | `available_commands_update`; a creche door also sends the family's list in the `initialize` answer, `_meta["creche/commands"]` = `{availableCommands}`, so a new chat lists it before `session/new` | no slash-command autocomplete | 3 |
 | 14 | Session modes | `modes` + `session/set_mode` + `current_mode_update` | no mode switcher | 3 |
 | 15 | Context compaction | `compaction_update` + `compaction_summary_chunk` | transcript mutates without explanation | 3 |
 | 16 | Rewind (creche extension) | `agentCapabilities._meta["creche/rewind"]` + `_creche/session/rewind` `{sessionId, messageId}` → `{}`; a `messageId` on every `user_message_chunk` (live echo and replay) | no way to take a chat back to an earlier message | 3 |

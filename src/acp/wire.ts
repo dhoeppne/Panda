@@ -390,7 +390,33 @@ export function toSpend(meta: { [key: string]: unknown } | null | undefined): Ac
 export function toAvailableCommands(
   update: SessionUpdate & { sessionUpdate: 'available_commands_update' },
 ): AcpAvailableCommand[] | null {
-  const list = (update as { availableCommands?: unknown }).availableCommands;
+  return toCommandList((update as { availableCommands?: unknown }).availableCommands);
+}
+
+/**
+ * The `_meta` key of the `initialize` answer that holds a creche family's
+ * slash commands: `{availableCommands: [...]}`, the list of an
+ * `available_commands_update`. Panda connects with no session, so a new
+ * chat shows the family's commands before `session/new`.
+ */
+export const COMMANDS_META_KEY = 'creche/commands';
+
+/**
+ * The family's commands from the `_meta` of an `initialize` answer. Null
+ * when the key is absent (an agent that sends none) or malformed (warned).
+ */
+export function toFamilyCommands(meta: { [key: string]: unknown } | null | undefined): AcpAvailableCommand[] | null {
+  const value = meta?.[COMMANDS_META_KEY];
+  if (value === undefined) return null;
+  const commands =
+    typeof value === 'object' && value !== null
+      ? toCommandList((value as { availableCommands?: unknown }).availableCommands)
+      : null;
+  if (commands === null) warn(`initialize _meta["${COMMANDS_META_KEY}"] is malformed — ignored`);
+  return commands;
+}
+
+function toCommandList(list: unknown): AcpAvailableCommand[] | null {
   if (!Array.isArray(list)) return null;
   const commands: AcpAvailableCommand[] = [];
   for (const entry of list) {

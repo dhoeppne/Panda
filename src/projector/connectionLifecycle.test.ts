@@ -45,6 +45,7 @@ function slot(overrides: Partial<ConnectionState> = {}): ConnectionState {
   return {
     connection: { status: 'connected', error: null } as ConnectionInfo,
     capabilities: {} as ConnectionState['capabilities'],
+    familyCommands: null,
     sessions: [],
     docs: {},
     switching: null,
