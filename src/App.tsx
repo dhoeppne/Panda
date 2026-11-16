@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowLeft, Menu } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Sidebar } from './components/Sidebar';
+import { INTERACTIVE_CONTROL_SELECTOR } from './components/scrollPolicy';
 import { MessageStream } from './components/MessageStream';
 import { EmptyState } from './components/EmptyState';
 import { AuthGate } from './components/AuthGate';
@@ -18,6 +19,17 @@ import {
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
 import { navigate, useHashRoute } from './routes';
+import {
+  beginDrawerDrag,
+  beginsDrawerSwipe,
+  drawerDragOnMove,
+  drawerDragOnRelease,
+  EDGE_ZONE_PX,
+  HORIZONTAL_PAN_SELECTOR,
+  TEXT_ENTRY_SELECTOR,
+  type DrawerDrag,
+  type SwipeStart,
+} from './navSwipe';
 import { composerDraftKey, useComposerDrafts } from './composerDrafts';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
@@ -31,6 +43,10 @@ import type { ForegroundSessionController } from './session-controller';
 import './App.css';
 import { useI18n } from './i18n/context';
 
+/** The drawer's breakpoint, as Sidebar.css declares it: at 768px and up the
+ * sidebar is a static column and there is nothing to swipe. */
+const DRAWER_QUERY = '(min-width: 768px)';
+
 /** Route-level shell: `#/` is the session screen, `#/settings` the settings
  * screen. MainScreen owns the shell (sidebar + header); the settings route
  * swaps only the main column's content (#111) so the app chrome — sidebar,
@@ -43,6 +59,94 @@ function MainScreen() {
   const route = useHashRoute();
   const onSettings = route === 'settings';
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  // The drawer's edge-swipe gesture (navSwipe.ts). The drag lives in a ref:
+  // pointermove writes the drawer's geometry to CSS custom properties on the
+  // shell instead of re-rendering — the message stream is virtualized, and a
+  // state update per frame would fight Virtuoso. `drawerDragging` flips twice
+  // per gesture, only to mount the scrim and drop the transition.
+  const scrimRef = useRef<HTMLButtonElement | null>(null);
+  const navToggleRef = useRef<HTMLButtonElement | null>(null);
+  const dragRef = useRef<DrawerDrag | null>(null);
+  const [drawerDragging, setDrawerDragging] = useState(false);
+
+  const startDrawerDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (window.matchMedia(DRAWER_QUERY).matches) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    // One gesture at a time: a second finger during a drag must not take it
+    // over, and a drag already in flight owns the geometry.
+    if (dragRef.current !== null) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    // The drawer itself, for the two facts a drag needs: is the gesture
+    // starting inside it, and how wide is it. Read from the DOM rather than
+    // assumed — the CSS owns the width (Sidebar.css `.sidebar`), and a drag
+    // that disagrees with it would not track the finger.
+    const drawer = event.currentTarget.querySelector<HTMLElement>('.sidebar');
+    const width = drawer?.getBoundingClientRect().width ?? 0;
+    if (width <= 0) return;
+    const start: SwipeStart = {
+      surface: drawer?.contains(target)
+        ? 'drawer'
+        : scrimRef.current?.contains(target)
+          ? 'scrim'
+          : 'page',
+      fromEdge: event.clientX <= EDGE_ZONE_PX,
+      // The hamburger is the drawer's own control: a drag on it pans the
+      // drawer, so the edge keeps working across its 12–44px band.
+      onControl:
+        !navToggleRef.current?.contains(target) &&
+        target.closest(INTERACTIVE_CONTROL_SELECTOR) !== null,
+      inTextEntry: target.closest(TEXT_ENTRY_SELECTOR) !== null,
+      inHorizontalPan: target.closest(HORIZONTAL_PAN_SELECTOR) !== null,
+      open: mobileNavigationOpen,
+    };
+    if (!beginsDrawerSwipe(start)) return;
+    dragRef.current = beginDrawerDrag({
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      at: event.timeStamp,
+      open: mobileNavigationOpen,
+      width,
+    });
+  };
+
+  const moveDrawerDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) return;
+    const move = drawerDragOnMove(drag, event.clientX, event.clientY, event.timeStamp);
+    if (move.kind === 'hold') return;
+    if (move.kind === 'handoff') {
+      // The list underneath keeps this drag: drop ours and let it scroll.
+      dragRef.current = null;
+      return;
+    }
+    dragRef.current = move.drag;
+    if (move.axisJustLocked) {
+      // Capture from here on: the drawer pans even when the finger leaves it,
+      // and a captured pointerup retargets the click to the shell, so the row
+      // or scrim the drag began on never also reads it as a tap.
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDrawerDragging(true);
+    }
+    event.currentTarget.style.setProperty('--panda-drawer-x', `${move.drag.offset}px`);
+    event.currentTarget.style.setProperty('--panda-drawer-progress', `${move.drag.offset / move.drag.width}`);
+  };
+
+  const endDrawerDrag = (event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) => {
+    const drag = dragRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    const release = drawerDragOnRelease(drag, event.timeStamp, cancelled);
+    if (release.kind === 'hold') return;
+    // The transition returns with the class, so the drawer settles from
+    // wherever the finger left it.
+    event.currentTarget.style.removeProperty('--panda-drawer-x');
+    event.currentTarget.style.removeProperty('--panda-drawer-progress');
+    setDrawerDragging(false);
+    setMobileNavigationOpen(release.open);
+  };
+
   // Which settings section is showing (#117) — MainScreen-level so it
   // survives settings ⇄ main route flips (returning lands where you left).
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('general');
@@ -155,10 +259,17 @@ function MainScreen() {
       : (connection.url ?? 'acp');
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell${drawerDragging ? ' app-shell--drawer-dragging' : ''}`}
+      onPointerDown={startDrawerDrag}
+      onPointerMove={moveDrawerDrag}
+      onPointerUp={(event) => endDrawerDrag(event, false)}
+      onPointerCancel={(event) => endDrawerDrag(event, true)}
+    >
       <UserNoticeToasts />
-      {mobileNavigationOpen && (
+      {(mobileNavigationOpen || drawerDragging) && (
         <button
+          ref={scrimRef}
           type="button"
           className="app-nav-overlay"
           aria-label={t('app.closeNav')}
@@ -176,6 +287,7 @@ function MainScreen() {
         <header className="app-header">
           <div className="app-header-lead">
             <button
+              ref={navToggleRef}
               type="button"
               className="app-nav-toggle"
               aria-label={t('app.openNav')}

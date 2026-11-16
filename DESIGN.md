@@ -209,7 +209,7 @@ Tailwind 退役后，Panda 自有样式分三层：
 
 ## 触屏与指针契约（#107）
 
-响应式骨架（断点 640/768、抽屉侧栏）之外，触屏是二等输入，规则只有三条：
+响应式骨架（断点 640/768、抽屉侧栏）之外，触屏是二等输入，规则如下：
 
 - **视口高度一律 `100dvh`，禁止 `100vh`**（`100vh` 是移动端最大视口，
   地址栏收起后底部内容被截；App.css 与 SettingsPage.css 同此）。
@@ -221,6 +221,16 @@ Tailwind 退役后，Panda 自有样式分三层：
   用 `::after` 不可见扩命中区：`.composer-remove`（20px 徽标）、
   `.md-codeblock-copy`（22px）。行内 `.md-body` 链接排除（44px 下限会
   撑开消息行框）。
+- **抽屉的边缘手势横轴归它、纵轴归浏览器**（`navSwipe.ts`，纯函数与测试
+  同目录）：左边缘（`EDGE_ZONE_PX = 24`，让开系统自己的边缘手势）右滑开，
+  抽屉或遮罩上左滑关，方向未锁定前不偏转；接线在 `App.tsx`，拖拽期间只往
+  shell 写 `--panda-drawer-x` / `--panda-drawer-progress`，不逐帧重渲染
+  （消息流是虚拟化列表）。**凡是自己横滚的元素**（`pre`、`table`、
+  `.diff-scroll`、`.tool-input-pre`、`.disclosure-body--raw`）登记在
+  `HORIZONTAL_PAN_SELECTOR`，手势不接管，那里的拖动是那个元素的滚动。
+  **不写 `touch-action`**：它不继承，且只在「命中元素到最近的滚动容器」这一段
+  求交——要覆盖这个手势，就得把全应用每个滚动容器都列一遍。浏览器若把某次
+  拖动判给纵向滚动，`pointercancel` 把抽屉放回原位，手势不残留状态。
 
 ## 保留的定制 CSS（有意为之）
 
