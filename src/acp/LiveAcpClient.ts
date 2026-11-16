@@ -272,15 +272,27 @@ function describeError(err: unknown): string {
   return String(err);
 }
 
-/** v1 capability gates: loadSession is top-level, the rest live under sessionCapabilities. */
+/** The creche extension that cuts a session back to before one user message. */
+export const REWIND_METHOD = '_creche/session/rewind';
+
+/** The `_meta` key of `agentCapabilities` that declares REWIND_METHOD. */
+export const REWIND_CAPABILITY = 'creche/rewind';
+
+/**
+ * v1 capability gates: loadSession is top-level, the rest live under
+ * sessionCapabilities. The creche rewind extension lives under the
+ * `_meta` of agentCapabilities: an object there declares it.
+ */
 function readCaps(caps: AgentCapabilities | null | undefined): AgentCaps {
   const session = caps?.sessionCapabilities;
+  const rewind = caps?._meta?.[REWIND_CAPABILITY];
   return {
     image: caps?.promptCapabilities?.image === true,
     loadSession: caps?.loadSession === true,
     list: session?.list != null,
     resume: session?.resume != null,
     delete: session?.delete != null,
+    rewind: typeof rewind === 'object' && rewind !== null,
   };
 }
 
@@ -359,6 +371,7 @@ export class LiveAcpClient {
     list: false,
     resume: false,
     delete: false,
+    rewind: false,
   };
   private pendingPrompt: Promise<unknown> | null = null;
   private echo: EchoReconciler | null = null;
@@ -863,6 +876,54 @@ export class LiveAcpClient {
       console.error('[panda/acp] session/delete failed', err);
       this.reportDisconnect(t('acp.deleteSessionFailed', { error: describeError(err) }));
     }
+  }
+
+  /**
+   * Cuts the active session back to before the user message `messageId`
+   * (the creche extension `_creche/session/rewind`, capability-gated). The
+   * agent keeps the messages before it, and the document drops the rest
+   * (`rewound`). Resolves true when the cut landed. A refusal is
+   * session-scoped: the link stays up and the user gets a notice.
+   */
+  async rewindSession(messageId: string): Promise<boolean> {
+    const connection = this.connection;
+    const sessionId = this.sessionId;
+    const generation = this.connectionGeneration;
+    if (!connection || !sessionId) {
+      console.warn('[panda/acp] rewind ignored: no active session');
+      notifyUser('error', t('acp.notice.notConnected'));
+      return false;
+    }
+    if (!this.can('rewind')) {
+      console.warn('[panda/acp] rewind ignored: agent does not declare creche/rewind');
+      notifyUser('error', t('acp.notice.rewindUnsupported'));
+      return false;
+    }
+    if (this.pendingPrompt !== null || this.sessionSwitch) {
+      // A cut under a running turn would drop the blocks it still streams into.
+      console.warn('[panda/acp] rewind ignored: a turn or a session switch is still in flight');
+      notifyUser('error', t('acp.notice.busy'));
+      return false;
+    }
+    try {
+      await this.controlRequest(REWIND_METHOD, connection.agent.request(REWIND_METHOD, { sessionId, messageId }));
+    } catch (err) {
+      if (generation !== this.connectionGeneration) {
+        console.info('[panda/acp] superseded rewind failed after replacement — failure discarded');
+        return false;
+      }
+      console.error('[panda/acp] rewind failed', err);
+      notifyUser('error', t('acp.notice.rewindFailed', { error: describeError(err) }));
+      return false;
+    }
+    if (generation !== this.connectionGeneration || this.sessionId !== sessionId) {
+      // The agent cut the session, but the view moved on: the next load of
+      // that session replays the cut history.
+      console.info('[panda/acp] rewind completed after the view moved on — the document is not cut');
+      return false;
+    }
+    this.handlers.onUpdate({ sessionUpdate: 'rewound', protocolMessageId: messageId });
+    return true;
   }
 
   /**

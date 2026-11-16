@@ -302,6 +302,16 @@ export type AcpSessionUpdate =
       notifications: SessionNotification[];
     }
   | {
+      /**
+       * The agent cut the session back to before the user message
+       * `protocolMessageId` (creche `_creche/session/rewind`). Local, never a
+       * protocol notification: the document drops that block and every
+       * block after it.
+       */
+      sessionUpdate: 'rewound';
+      protocolMessageId: string;
+    }
+  | {
       sessionUpdate: 'agent_message_chunk';
       /** Same messageId appends to the same message; a new one starts a new message. */
       messageId?: string;

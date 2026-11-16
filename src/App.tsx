@@ -244,7 +244,21 @@ function MainScreen() {
               // stays readable, so the pointer is still set.
               <EmptyState />
             ) : (
-              <MessageStream key={foregroundSessionKey} onResolvePermission={controller.resolvePermission} onResolveElicitation={controller.resolveElicitation} onOpenElicitationUrl={controller.openElicitationUrl} />
+              <MessageStream
+                key={foregroundSessionKey}
+                onResolvePermission={controller.resolvePermission}
+                onResolveElicitation={controller.resolveElicitation}
+                onOpenElicitationUrl={controller.openElicitationUrl}
+                // A rewind needs a live link and an idle turn: a cut under a
+                // running turn would drop the blocks it still streams into.
+                onRewind={
+                  connection.status === 'connected' &&
+                  effectiveCaps.rewind.available &&
+                  lifecycle.docStatus === 'idle'
+                    ? live.rewind
+                    : undefined
+                }
+              />
             )}
             <StatusBar
               doc={doc}

@@ -166,6 +166,7 @@ Panda 注册的 client 侧 handler 全集:
 | 13 | 命令补全 | `available_commands_update` | 无斜杠命令自动补全 | 三 |
 | 14 | 会话模式 | `modes` + `session/set_mode` + `current_mode_update` | 无模式切换器 | 三 |
 | 15 | 上下文压缩 | `compaction_update` + `compaction_summary_chunk` | transcript 无解释地突变 | 三 |
+| 16 | 回退(creche 扩展) | `agentCapabilities._meta["creche/rewind"]` + `_creche/session/rewind` `{sessionId, messageId}` → `{}`;每个 `user_message_chunk`(实时回显与回放)都带 `messageId` | 无法把对话退回到更早的消息 | 三 |
 
 ### 5.1 第一梯队:核心体验明显残缺
 
@@ -199,7 +200,7 @@ Panda 注册的 client 侧 handler 全集:
 
 | 项 | 预算 | 超时后果 |
 | --- | --- | --- |
-| 控制面 RPC:`initialize`、`session/new`、`session/list`、`session/resume`、`session/delete`、`session/set_mode`、`session/set_config_option`、`logout` | **30 s**(`CONTROL_REQUEST_TIMEOUT_MS`) | 判定 agent 挂死,整条连接拆除 |
+| 控制面 RPC:`initialize`、`session/new`、`session/list`、`session/resume`、`session/delete`、`session/set_mode`、`session/set_config_option`、`logout`、`_creche/session/rewind` | **30 s**(`CONTROL_REQUEST_TIMEOUT_MS`) | 判定 agent 挂死,整条连接拆除 |
 | `session/load` | 首条正确路由的回放 update 前 **60 s**(`SESSION_LOAD_FIRST_UPDATE_TIMEOUT_MS`);开始回放后连续 **30 s** 无 update;且总计不超过 **120 s**(`SESSION_LOAD_HARD_TIMEOUT_MS`) | 判定 agent 挂死,整条连接拆除 |
 | `session/prompt` | 不限时 | 回合跑多久算多久,用户用取消兜底 |
 | `authenticate` | 不限时 | OAuth 等用户带外操作 |

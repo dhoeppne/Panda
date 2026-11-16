@@ -17,7 +17,7 @@ import { AgentMessage } from './AgentMessage';
 import { ThoughtBlock } from './ThoughtBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { ToolCallGroup } from './ToolCallGroup';
-import { UserMessage } from './UserMessage';
+import { UserMessage, type RewindAction } from './UserMessage';
 import { ContentColumn } from './ContentColumn';
 import { AttachedPermissionCard } from './PermissionCard';
 import { ElicitationCard } from './ElicitationCard';
@@ -67,10 +67,12 @@ const isToolItem = (item: StreamItem | undefined): boolean =>
 const StreamHeader = () => <div className="stream-header-space" />;
 const StreamFooter = () => <div className="stream-footer-space" />;
 
-export function MessageStream({ onResolvePermission, onResolveElicitation, onOpenElicitationUrl }: {
+export function MessageStream({ onResolvePermission, onResolveElicitation, onOpenElicitationUrl, onRewind }: {
   onResolvePermission: (toolCallId: string, kind: PermissionOptionKind) => void;
   onResolveElicitation: (id: string, response: ElicitationResponse) => void;
   onOpenElicitationUrl: (id: string) => void;
+  /** Rewind from a user message; undefined hides the control (no capability, or a turn runs). */
+  onRewind?: RewindAction;
 }) {
   const { t } = useI18n();
   const [pinned, setPinned] = useState(true);
@@ -295,6 +297,7 @@ export function MessageStream({ onResolvePermission, onResolveElicitation, onOpe
                 streaming={item.streaming}
                 permission={item.permission}
                 onResolvePermission={onResolvePermission}
+                onRewind={onRewind}
                 prevIsTool={isToolItem(items[index - 1])}
                 nextIsTool={isToolItem(items[index + 1])}
               />
@@ -321,11 +324,12 @@ export function MessageStream({ onResolvePermission, onResolveElicitation, onOpe
  * Shallow-compare memo: the projection keeps untouched item identities
  * (ADR 0006), so only the block a chunk landed in re-renders.
  */
-const BlockView = memo(function BlockView({ block, streaming, permission, onResolvePermission, prevIsTool, nextIsTool }: {
+const BlockView = memo(function BlockView({ block, streaming, permission, onResolvePermission, onRewind, prevIsTool, nextIsTool }: {
   block: Block;
   streaming: boolean;
   permission: AttachedPermission | null;
   onResolvePermission: (toolCallId: string, kind: PermissionOptionKind) => void;
+  onRewind?: RewindAction;
   /** Neighbor flags (primitive so the memo's shallow compare stays stable):
    * only tool_call blocks consume them — see isToolItem above. */
   prevIsTool: boolean;
@@ -334,7 +338,7 @@ const BlockView = memo(function BlockView({ block, streaming, permission, onReso
   const { t } = useI18n();
   switch (block.kind) {
     case 'user_message':
-      return <UserMessage block={block} />;
+      return <UserMessage block={block} onRewind={onRewind} />;
     case 'agent_message':
       return <AgentMessage block={block} streaming={streaming} />;
     case 'thought':

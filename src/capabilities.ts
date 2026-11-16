@@ -16,8 +16,12 @@
  * it is the seam both the selectors and the ACP client consume.
  */
 
-/** The capability keys Panda gates on (the v1 agent declarations). */
-export type CapabilityKey = 'image' | 'loadSession' | 'list' | 'resume' | 'delete';
+/**
+ * The capability keys Panda gates on: the v1 agent declarations, plus
+ * `rewind`, the creche extension `_creche/session/rewind` that an agent
+ * declares as `agentCapabilities._meta["creche/rewind"]`.
+ */
+export type CapabilityKey = 'image' | 'loadSession' | 'list' | 'resume' | 'delete' | 'rewind';
 
 /** Agent-side declarations for every capability key. */
 export type AgentCapabilityDeclarations = Record<CapabilityKey, boolean>;
@@ -59,6 +63,7 @@ export const CAPABILITY_HOST_SHARDS: Record<CapabilityKey, HostCapabilityShard |
   list: null,
   resume: null,
   delete: null,
+  rewind: null,
 };
 
 /** Why a capability is unavailable — drives the UI's presentation choice. */
@@ -131,5 +136,6 @@ export function effectiveCapabilities(
     list: effectiveCapability('list', agent, host, composition),
     resume: effectiveCapability('resume', agent, host, composition),
     delete: effectiveCapability('delete', agent, host, composition),
+    rewind: effectiveCapability('rewind', agent, host, composition),
   };
 }

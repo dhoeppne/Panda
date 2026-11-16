@@ -48,6 +48,9 @@ export function applyUpdate(
     case 'user_message_confirmed':
       return confirmUserMessage(doc, update);
 
+    case 'rewound':
+      return cutBeforeUserMessage(doc, update.protocolMessageId);
+
     case 'agent_message_chunk':
       return appendChunk(doc, 'agent_message', update.messageId, update.content, update.raw);
 
@@ -428,6 +431,28 @@ function appendUserMessage(
     return replaceLastTurn(doc, { ...turn, blocks: [...turn.blocks, block] });
   }
   return appendBlock(doc, block, true);
+}
+
+/**
+ * A rewind (creche `_creche/session/rewind`): the document keeps each
+ * block before the user block with this protocol messageId, and drops that
+ * block and every block after it. A turn left empty goes too. An id that
+ * names no user block is a client contract violation — loud, and the
+ * document stays as it is.
+ */
+function cutBeforeUserMessage(doc: SessionDocument, protocolMessageId: string): SessionDocument {
+  for (let t = 0; t < doc.turns.length; t += 1) {
+    const turn = doc.turns[t]!;
+    const at = turn.blocks.findIndex(
+      (block) => block.kind === 'user_message' && block.protocolMessageId === protocolMessageId,
+    );
+    if (at < 0) continue;
+    const kept = turn.blocks.slice(0, at);
+    const turns = kept.length > 0 ? [...doc.turns.slice(0, t), { ...turn, blocks: kept }] : doc.turns.slice(0, t);
+    return { ...doc, turns };
+  }
+  console.warn('[reducer] rewound names no user block of the document — ignored');
+  return doc;
 }
 
 /**

@@ -597,6 +597,39 @@ describe('reducer echo reconciliation (optimistic user messages)', () => {
     expect(after.turns[0]!.blocks).toHaveLength(2);
   });
 
+describe('reducer rewound (creche rewind)', () => {
+  const prompt = (id: string, text: string): AcpSessionUpdate => ({
+    sessionUpdate: 'user_message',
+    content: [{ type: 'text', text }],
+    messageId: id,
+  });
+  const answer = (id: string, text: string): AcpSessionUpdate => ({
+    sessionUpdate: 'agent_message_chunk',
+    messageId: id,
+    content: { type: 'text', text },
+  });
+
+  it('drops the user block of the id and every block after it', () => {
+    const doc = fold([prompt('u1', 'one'), answer('a1', 'One.'), prompt('u2', 'two'), answer('a2', 'Two.')]);
+    const cut = applyUpdate(doc, { sessionUpdate: 'rewound', protocolMessageId: 'u2' });
+    expect(cut.turns).toHaveLength(1);
+    expect(cut.turns[0]!.blocks.map((block) => block.kind)).toEqual(['user_message', 'agent_message']);
+  });
+
+  it('empties the document for a rewind to the first message', () => {
+    const doc = fold([prompt('u1', 'one'), answer('a1', 'One.')]);
+    expect(applyUpdate(doc, { sessionUpdate: 'rewound', protocolMessageId: 'u1' }).turns).toEqual([]);
+  });
+
+  it('ignores an id of no user block, loudly', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const doc = fold([prompt('u1', 'one'), answer('a1', 'One.')]);
+    expect(applyUpdate(doc, { sessionUpdate: 'rewound', protocolMessageId: 'a1' })).toBe(doc);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rewound'));
+    warnSpy.mockRestore();
+  });
+});
+
 describe('reducer permission lifecycle (issue #18)', () => {
   const request = (toolCallId: string, title = `操作 ${toolCallId}`) => ({
     toolCallId,

@@ -18,6 +18,8 @@ import {
   SESSION_LOAD_FIRST_UPDATE_TIMEOUT_MS,
   SESSION_LOAD_HARD_TIMEOUT_MS,
   LiveAcpClient,
+  REWIND_CAPABILITY,
+  REWIND_METHOD,
   type LiveClientHandlers,
 } from './LiveAcpClient';
 import type { McpServerConfig } from '../mcpServers';
@@ -50,7 +52,7 @@ type Records = {
   connected: { agentName: string; protocolVersion: number }[];
   sessionIds: string[];
   disconnected: (string | null)[];
-  capabilities: { image: boolean; loadSession: boolean; list: boolean; resume: boolean; delete: boolean }[];
+  capabilities: { image: boolean; loadSession: boolean; list: boolean; resume: boolean; delete: boolean; rewind: boolean }[];
   sessions: { sessionId: string; cwd: string; title: string | null; updatedAt: string | null }[][];
   sessionInfos: { sessionId: string; title?: string | null; updatedAt?: string | null }[];
   replays: number[];
@@ -86,6 +88,7 @@ type Harness = Records & {
     permissionResponses: RequestPermissionResponse[];
     resumeRequests: string[];
     deleteRequests: string[];
+    rewindRequests: Array<Record<string, unknown>>;
     newSessionParams: Array<Record<string, unknown>>;
     loadParams: Array<Record<string, unknown>>;
     notifyLoadUpdate:
@@ -101,7 +104,9 @@ type Harness = Records & {
 type FakeAgentOptions = {
   protocolVersion?: number;
   /** Capability gates advertised at initialize. */
-  capabilities?: { image?: boolean; loadSession?: boolean; list?: boolean; resume?: boolean; delete?: boolean; close?: boolean };
+  capabilities?: { image?: boolean; loadSession?: boolean; list?: boolean; resume?: boolean; delete?: boolean; close?: boolean; rewind?: boolean };
+  /** The creche rewind answers with an error instead of {}. */
+  failRewind?: boolean;
   /** Entries returned by session/list. */
   listSessions?: { sessionId: string; cwd: string; title?: string | null; updatedAt?: string | null }[];
   /** Per-session replay history served by session/load. */
@@ -276,6 +281,7 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
     permissionResponses: [] as RequestPermissionResponse[],
     resumeRequests: [] as string[],
     deleteRequests: [] as string[],
+    rewindRequests: [] as Array<Record<string, unknown>>,
     newSessionParams: [] as Array<Record<string, unknown>>,
     loadParams: [] as Array<Record<string, unknown>>,
     notifyLoadUpdate: null as
@@ -320,6 +326,7 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
           ...(caps.image ? { promptCapabilities: { image: true } } : {}),
           ...(Object.keys(sessionCaps).length > 0 ? { sessionCapabilities: sessionCaps } : {}),
           ...(opts.authLogout ? { auth: { logout: {} } } : {}),
+          ...(caps.rewind ? { _meta: { [REWIND_CAPABILITY]: {} } } : {}),
         },
         ...(opts.authMethods ? { authMethods: opts.authMethods } : {}),
       };
@@ -369,6 +376,11 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
     })
     .onRequest(methods.agent.session.delete, (ctx) => {
       agentState.deleteRequests.push(ctx.params.sessionId);
+      return {};
+    })
+    .onRequest(REWIND_METHOD, (params: unknown) => params as Record<string, unknown>, (ctx) => {
+      agentState.rewindRequests.push(ctx.params);
+      if (opts.failRewind) throw RequestError.invalidParams(undefined, 'no user message with this messageId');
       return {};
     })
     .onRequest(methods.agent.session.close, (ctx) => {
@@ -470,7 +482,7 @@ describe('LiveAcpClient', () => {
     });
 
     expect(h.capabilities).toEqual([
-      { image: true, loadSession: false, list: false, resume: false, delete: false },
+      { image: true, loadSession: false, list: false, resume: false, delete: false, rewind: false },
     ]);
 
     const content = [
@@ -1244,7 +1256,7 @@ describe('LiveAcpClient', () => {
       ],
     });
     expect(h.capabilities).toEqual([
-      { image: false, loadSession: true, list: true, resume: true, delete: true },
+      { image: false, loadSession: true, list: true, resume: true, delete: true, rewind: false },
     ]);
     expect(h.sessions).toEqual([
       [
@@ -1506,6 +1518,37 @@ describe('LiveAcpClient', () => {
     expect(h.agentState.deleteRequests).toEqual(['s-1']);
     expect(h.deletedSessions).toEqual(['s-1']);
     h.closeAll();
+  });
+
+  it('reads creche/rewind from the _meta of agentCapabilities', async () => {
+    const h = await setup({ capabilities: { rewind: true } });
+    expect(h.capabilities.at(-1)?.rewind).toBe(true);
+    h.closeAll();
+  });
+
+  it('rewindSession sends the creche rewind, then cuts the document', async () => {
+    const h = await setup({ capabilities: { rewind: true } });
+    expect(await h.acpClient.rewindSession('msg-2')).toBe(true);
+    expect(h.agentState.rewindRequests).toEqual([{ sessionId: 's-1', messageId: 'msg-2' }]);
+    expect(h.updates.at(-1)).toEqual({ sessionUpdate: 'rewound', protocolMessageId: 'msg-2' });
+    h.closeAll();
+  });
+
+  it('rewindSession is refused without the capability, and a refusal keeps the document', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const bare = await setup();
+    expect(await bare.acpClient.rewindSession('msg-2')).toBe(false);
+    expect(bare.agentState.rewindRequests).toEqual([]);
+    bare.closeAll();
+
+    const refused = await setup({ capabilities: { rewind: true }, failRewind: true });
+    expect(await refused.acpClient.rewindSession('msg-2')).toBe(false);
+    expect(refused.updates.some((u) => (u.sessionUpdate as string) === 'rewound')).toBe(false);
+    expect(refused.disconnected).toEqual([]);
+    warnSpy.mockRestore();
+    errSpy.mockRestore();
+    refused.closeAll();
   });
 
   it('deleteSession is refused without the capability', async () => {

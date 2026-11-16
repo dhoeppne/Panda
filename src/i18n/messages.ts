@@ -128,6 +128,15 @@ export const messages = {
   // ---- MessageStream ----
   'stream.compacting': { en: 'Compacting context…', zh: '正在压缩上下文…' },
   'stream.jumpToLatest': { en: 'Jump to latest', zh: '回到最新' },
+  'msg.rewind': { en: 'Rewind to here', zh: '回退到这里' },
+  'msg.copy': { en: 'Copy message', zh: '复制消息' },
+  'msg.copied': { en: 'Copied', zh: '已复制' },
+  'msg.rewindTitle': { en: 'Rewind to before this message?', zh: '回退到这条消息之前?' },
+  'msg.rewindBody': {
+    en: 'This message and every message after it leave the chat. Its text goes back to the composer. Files in the workspace stay as they are.',
+    zh: '这条消息及其之后的所有消息将从对话中移除,它的文字会回到输入框。工作区中的文件保持不变。',
+  },
+  'msg.rewindAction': { en: 'Rewind', zh: '回退' },
   'stream.compacted': { en: 'Context compacted', zh: '上下文已压缩' },
   'stream.compactFailed': { en: 'Context compaction failed', zh: '上下文压缩失败' },
   'stream.compactFailedReason': { en: 'Context compaction failed: {error}', zh: '上下文压缩失败:{error}' },
@@ -655,6 +664,8 @@ export const messages = {
     zh: '该 agent 不支持 session/load,无法切换到其他会话。',
   },
   'acp.notice.deleteUnsupported': { en: 'This agent does not support session/delete.', zh: '该 agent 不支持 session/delete。' },
+  'acp.notice.rewindUnsupported': { en: 'This agent does not support rewind.', zh: '该 agent 不支持回退。' },
+  'acp.notice.rewindFailed': { en: 'Rewind failed: {error}', zh: '回退失败:{error}' },
   'acp.notice.listFailed': { en: 'Session list fetch failed: {error}', zh: '会话列表拉取失败:{error}' },
   'acp.notice.permissionGone': {
     en: 'That permission request is no longer pending — the answer was not delivered.',

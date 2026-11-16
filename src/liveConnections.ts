@@ -30,6 +30,7 @@ import { cwdToWorkspace, workspaceToCwd, type Workspace } from './workspace';
 import { alwaysAskPolicy, type PermissionDecision, type PermissionPolicy } from './policy';
 import { notifyUser } from './userNotice';
 import { randomUuid } from './uuid';
+import { composerDraftKey, useComposerDrafts } from './composerDrafts';
 
 /**
  * Live connection manager (issue #21, ADR 0002): one `LiveAcpClient` + one
@@ -480,6 +481,7 @@ function wireHandlers(entry: LiveConnection) {
       list: boolean;
       resume: boolean;
       delete: boolean;
+      rewind: boolean;
     }) =>
       port.setCapabilities({
         image: caps.image,
@@ -487,6 +489,7 @@ function wireHandlers(entry: LiveConnection) {
         list: caps.list,
         resume: caps.resume,
         delete: caps.delete,
+        rewind: caps.rewind,
       }),
     onSessions: (entries: SessionEntry[]) => reconcileListedSessions(entry, entries),
     onSessionInfo: (sessionId: string, info: { title?: string | null; updatedAt?: string | null }) =>
@@ -1040,7 +1043,7 @@ export function seedProfileSlots(profiles: AgentProfile[], storage: SessionStora
     const entry = ensureEntry(profile.id);
     restoreEndpointSessions(endpoint, entry.port.replaceSessions, storage);
     entry.port.resetDocument();
-    entry.port.setCapabilities({ image: false, loadSession: false, list: false, resume: false, delete: false });
+    entry.port.setCapabilities({ image: false, loadSession: false, list: false, resume: false, delete: false, rewind: false });
     entry.port.setConnection({
       status: 'disconnected',
       url: endpoint,
@@ -1159,6 +1162,19 @@ function foregroundEntry(action: string): LiveConnection | null {
     return null;
   }
   return entry;
+}
+
+/**
+ * Rewinds the foreground session to before the user message `messageId`
+ * (creche `_creche/session/rewind`). After the cut, `text` goes to the
+ * composer draft of that session, so the user edits it or sends it again.
+ */
+export async function rewindLive(messageId: string, text: string): Promise<void> {
+  const entry = foregroundEntry('rewind');
+  if (!entry) return;
+  const sessionId = usePanda.getState().connections[entry.connectionId]?.connection.sessionId ?? null;
+  if (!(await entry.client.rewindSession(messageId))) return;
+  useComposerDrafts.getState().setDraft(composerDraftKey(entry.connectionId, sessionId), { value: text });
 }
 
 export async function sendLive(content: AcpContentBlock[]): Promise<void> {

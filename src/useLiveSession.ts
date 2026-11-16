@@ -7,6 +7,7 @@ import {
   connectLiveConnection,
   connectProfilesInBackground,
   deleteLiveSession,
+  rewindLive,
   disconnectLiveConnection,
   foregroundConnection,
   logoutLiveConnection,
@@ -81,6 +82,7 @@ export function useLiveSession() {
       setConfigOption: (configId, value) => setLiveConfigOption(configId, value),
       newSession: (cwd, connectionId) => newLiveSession(cwd, connectionId),
       deleteSession: (connectionId, sessionId) => deleteLiveSession(connectionId, sessionId),
+      rewind: (messageId, text) => void rewindLive(messageId, text),
     }),
     [],
   );
@@ -121,4 +123,6 @@ export interface LiveSessionFacade extends ForegroundSessionController {
    * row the user clicked), foreground follows it (bug hunt #5). */
   newSession: (cwd: string, connectionId?: string) => void;
   deleteSession: (connectionId: string, sessionId: string) => void;
+  /** Cuts the foreground session to before a user message; its text goes to the composer. */
+  rewind: (messageId: string, text: string) => void;
 }

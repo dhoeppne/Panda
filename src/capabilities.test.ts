@@ -7,8 +7,8 @@ import {
   type HostCapabilities,
 } from './capabilities';
 
-const declareAll = { image: true, loadSession: true, list: true, resume: true, delete: true };
-const declareNone = { image: false, loadSession: false, list: false, resume: false, delete: false };
+const declareAll = { image: true, loadSession: true, list: true, resume: true, delete: true, rewind: true };
+const declareNone = { image: false, loadSession: false, list: false, resume: false, delete: false, rewind: false };
 
 const allShards: HostCapabilities = {
   permission: true,
@@ -67,8 +67,8 @@ describe('effectiveCapability (issue #22)', () => {
     });
   });
 
-  it('现有五项能力均无宿主分片依赖', () => {
-    expect(Object.values(CAPABILITY_HOST_SHARDS)).toEqual([null, null, null, null, null]);
+  it('现有六项能力均无宿主分片依赖', () => {
+    expect(Object.values(CAPABILITY_HOST_SHARDS)).toEqual([null, null, null, null, null, null]);
   });
 
   it('判定对象 intern：同 verdict 恒等——useShallow 选择器的稳定性契约', () => {
@@ -84,7 +84,7 @@ describe('effectiveCapability (issue #22)', () => {
 describe('effectiveCapabilities', () => {
   it('maps every capability key', () => {
     const all = effectiveCapabilities(declareAll, allShards);
-    expect(Object.keys(all).sort()).toEqual(['delete', 'image', 'list', 'loadSession', 'resume']);
+    expect(Object.keys(all).sort()).toEqual(['delete', 'image', 'list', 'loadSession', 'resume', 'rewind']);
     expect(Object.values(all).every((verdict) => verdict.available)).toBe(true);
   });
 });
