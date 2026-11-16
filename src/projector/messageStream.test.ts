@@ -42,7 +42,7 @@ function documentWith(...calls: ToolCallState[]): SessionDocument {
   return {
     turns: [{ id: 'turn-1', blocks: calls.map((call) => ({ kind: 'tool_call' as const, call })) }],
     status: 'requires_action',
-    usage: { used: 0, size: 0, cost: null },
+    usage: { used: 0, size: 0, cost: null, spend: null },
     plan: null,
     compactions: {},
     modes: null,
@@ -229,7 +229,7 @@ describe('projection unsupported fallback blocks', () => {
         },
       ],
       status: 'idle',
-      usage: { used: 0, size: 0, cost: null },
+      usage: { used: 0, size: 0, cost: null, spend: null },
       plan: null,
     compactions: {},
       modes: null,

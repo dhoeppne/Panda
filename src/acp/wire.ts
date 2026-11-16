@@ -30,6 +30,7 @@ import {
   type AcpElicitationOption,
   type AcpSessionModeState,
   type AcpSessionUpdate,
+  type AcpSpend,
   type AcpToolCallContent,
   type AcpToolCallLocation,
   type ElicitationRequest,
@@ -314,6 +315,7 @@ export function toAcpUpdates(notification: SessionNotification): AcpSessionUpdat
           used: update.used,
           size: update.size,
           cost: update.cost ?? undefined,
+          spend: toSpend(update._meta),
           raw,
         },
       ];
@@ -354,6 +356,26 @@ export function toAcpUpdates(notification: SessionNotification): AcpSessionUpdat
       return [{ sessionUpdate: 'unsupported', raw }];
     }
   }
+}
+
+/** The `_meta` key under which creche agents send the family spend. */
+export const SPEND_META_KEY = 'creche/spend';
+
+const isDollars = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+/**
+ * Whitelists `usage_update._meta["creche/spend"]` (a creche extension, see
+ * AcpSpend). `_meta` is free-form, so anything off-shape is ignored
+ * (undefined → the reducer keeps the last spend) instead of shown wrong.
+ */
+export function toSpend(meta: { [key: string]: unknown } | null | undefined): AcpSpend | undefined {
+  const raw = meta?.[SPEND_META_KEY];
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { amount, budget, currency } = raw as { amount?: unknown; budget?: unknown; currency?: unknown };
+  if (!isDollars(amount) || typeof currency !== 'string') return undefined;
+  if (budget !== null && !isDollars(budget)) return undefined;
+  return { amount, budget, currency };
 }
 
 /**

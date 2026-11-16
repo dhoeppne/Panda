@@ -10,9 +10,11 @@ import './StatusBar.css';
 import { useI18n } from '../i18n/context';
 
 const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+/** Whole budgets stay whole ("$60"); spend keeps cents ("$12.40"). */
+const formatDollars = (n: number) => (Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`);
 
-/** Session state + live connection on the left, context-usage meter and cost
- * on the right. Status meaning comes from the lifecycle projection (#53):
+/** Session state + live connection on the left, context-usage meter, cost
+ * and the agent family's daily spend (creche `_meta`) on the right. Status meaning comes from the lifecycle projection (#53):
  * this component only maps a ConnectionPhase to pixels. */
 export function StatusBar({ doc, connection, onAuthenticate }: {
   doc: SessionDocument;
@@ -150,6 +152,23 @@ export function StatusBar({ doc, connection, onAuthenticate }: {
             </span>
             {usage.cost && (
               <span className="statusbar-mono">${usage.cost.amount.toFixed(2)}</span>
+            )}
+            {usage.spend && (
+              <span
+                className="statusbar-mono"
+                title={
+                  usage.spend.budget === null
+                    ? t('status.spendNoBudget')
+                    : t('status.spendTitle', { budget: formatDollars(usage.spend.budget) })
+                }
+              >
+                {usage.spend.budget === null
+                  ? t('status.spendToday', { amount: formatDollars(usage.spend.amount) })
+                  : t('status.spendOfBudget', {
+                      amount: formatDollars(usage.spend.amount),
+                      budget: formatDollars(usage.spend.budget),
+                    })}
+              </span>
             )}
           </div>
         )}
