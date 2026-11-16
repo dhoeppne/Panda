@@ -20,16 +20,14 @@ import {
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
 import { navigate, useHashRoute } from './routes';
 import {
+  beginDrawerDrag,
   beginsDrawerSwipe,
-  drawerOffset,
+  drawerDragOnMove,
+  drawerDragOnRelease,
   EDGE_ZONE_PX,
   HORIZONTAL_PAN_SELECTOR,
-  releaseVelocity,
-  settleDrawer,
-  swipeAxis,
   TEXT_ENTRY_SELECTOR,
-  type DragSample,
-  type SwipeAxis,
+  type DrawerDrag,
   type SwipeStart,
 } from './navSwipe';
 import { composerDraftKey, useComposerDrafts } from './composerDrafts';
@@ -48,22 +46,6 @@ import { useI18n } from './i18n/context';
 /** The drawer's breakpoint, as Sidebar.css declares it: at 768px and up the
  * sidebar is a static column and there is nothing to swipe. */
 const DRAWER_QUERY = '(min-width: 768px)';
-
-/** One in-flight drawer drag (navSwipe.ts). */
-type DrawerDrag = {
-  pointerId: number;
-  startX: number;
-  startY: number;
-  /** Whether the drawer was open when the drag began. */
-  open: boolean;
-  axis: SwipeAxis;
-  /** The drawer's rendered width, read once when the drag began. */
-  width: number;
-  /** Where the drawer sits now, in px from closed. */
-  offset: number;
-  /** Pointer samples, for the release velocity. */
-  samples: DragSample[];
-};
 
 /** Route-level shell: `#/` is the session screen, `#/settings` the settings
  * screen. MainScreen owns the shell (sidebar + header); the settings route
@@ -119,68 +101,50 @@ function MainScreen() {
       open: mobileNavigationOpen,
     };
     if (!beginsDrawerSwipe(start)) return;
-    dragRef.current = {
+    dragRef.current = beginDrawerDrag({
       pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      at: event.timeStamp,
       open: mobileNavigationOpen,
-      axis: 'undecided',
       width,
-      offset: mobileNavigationOpen ? width : 0,
-      samples: [{ x: event.clientX, at: event.timeStamp }],
-    };
+    });
   };
 
   const moveDrawerDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (drag === null || drag.pointerId !== event.pointerId) return;
-    if (drag.axis === 'undecided') {
-      const axis = swipeAxis(event.clientX - drag.startX, event.clientY - drag.startY);
-      if (axis === 'undecided') return;
-      if (axis === 'vertical') {
-        // The list underneath keeps this drag: drop ours and let it scroll.
-        dragRef.current = null;
-        return;
-      }
-      drag.axis = axis;
+    const move = drawerDragOnMove(drag, event.clientX, event.clientY, event.timeStamp);
+    if (move.kind === 'hold') return;
+    if (move.kind === 'handoff') {
+      // The list underneath keeps this drag: drop ours and let it scroll.
+      dragRef.current = null;
+      return;
+    }
+    dragRef.current = move.drag;
+    if (move.axisJustLocked) {
       // Capture from here on: the drawer pans even when the finger leaves it,
       // and a captured pointerup retargets the click to the shell, so the row
       // or scrim the drag began on never also reads it as a tap.
       event.currentTarget.setPointerCapture(event.pointerId);
       setDrawerDragging(true);
     }
-    drag.offset = drawerOffset({
-      startX: drag.startX,
-      x: event.clientX,
-      width: drag.width,
-      open: drag.open,
-      axis: drag.axis,
-    });
-    drag.samples.push({ x: event.clientX, at: event.timeStamp });
-    event.currentTarget.style.setProperty('--panda-drawer-x', `${drag.offset}px`);
-    event.currentTarget.style.setProperty('--panda-drawer-progress', `${drag.offset / drag.width}`);
+    event.currentTarget.style.setProperty('--panda-drawer-x', `${move.drag.offset}px`);
+    event.currentTarget.style.setProperty('--panda-drawer-progress', `${move.drag.offset / move.drag.width}`);
   };
 
   const endDrawerDrag = (event: ReactPointerEvent<HTMLDivElement>, cancelled: boolean) => {
     const drag = dragRef.current;
     if (drag === null || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
-    if (drag.axis !== 'horizontal') return;
+    const release = drawerDragOnRelease(drag, event.timeStamp, cancelled);
+    if (release.kind === 'hold') return;
+    // The transition returns with the class, so the drawer settles from
+    // wherever the finger left it.
     event.currentTarget.style.removeProperty('--panda-drawer-x');
     event.currentTarget.style.removeProperty('--panda-drawer-progress');
     setDrawerDragging(false);
-    // A cancelled drag (the browser took the gesture) puts the drawer back
-    // where it was; a finished one settles on the flick or the halfway point,
-    // and the 200ms transition carries it there from under the finger.
-    setMobileNavigationOpen(
-      cancelled
-        ? drag.open
-        : settleDrawer({
-            offset: drag.offset,
-            velocity: releaseVelocity(drag.samples, event.timeStamp),
-            width: drag.width,
-          }) === 'open',
-    );
+    setMobileNavigationOpen(release.open);
   };
 
   // Which settings section is showing (#117) — MainScreen-level so it
