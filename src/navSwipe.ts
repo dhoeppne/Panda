@@ -50,9 +50,12 @@ export const FLICK_WINDOW_MS = 100;
  * Elements that pan horizontally themselves: a leftward drag on one of them
  * is that element's scroll, never a drawer swipe. The stream's code blocks,
  * diff tables, markdown tables and raw JSON dumps are the cases that matter.
- * Each is its own scroll container, which is also why each keeps
- * `touch-action: auto` against the shell's `pan-y` — the browser intersects
- * touch-action only up to the nearest scrolling element (App.css).
+ * A drag the browser claims for one of these scrolls cancels the pan
+ * (`pointercancel` puts the drawer back). `touch-action` is deliberately left
+ * alone: it is not inherited and is intersected only up to the nearest scroll
+ * container, so covering this gesture would mean listing every scroller in
+ * the app — and a horizontal drag has nothing to pan when no ancestor
+ * scrolls sideways.
  */
 export const HORIZONTAL_PAN_SELECTOR = 'pre, table, .diff-scroll, .tool-input-pre, .disclosure-body--raw';
 
