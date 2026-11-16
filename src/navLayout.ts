@@ -9,6 +9,7 @@
  * injected-storage and subscribe contract as profiles.ts. A synced store can
  * replace load/save later without touching the sidebar.
  */
+import { onRemoteChange, syncedStorage } from './settingsSync';
 import { randomUuid } from './uuid';
 
 export type NavFolder = { id: string; name: string; collapsed: boolean };
@@ -66,8 +67,14 @@ export function subscribeNavLayout(listener: NavListener): () => void {
 }
 
 function defaultStorage(): NavStorage {
-  return globalThis.localStorage;
+  return syncedStorage;
 }
+
+// A pull from the settings store replaced the stored layout (settingsSync.ts).
+onRemoteChange('panda.nav', () => {
+  const layout = loadNavLayout(defaultStorage());
+  for (const listener of listeners) listener(layout);
+});
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);

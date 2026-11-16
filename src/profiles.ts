@@ -13,6 +13,7 @@
 import { isWorkspace, type Workspace } from './workspace';
 import { t } from './i18n';
 import { notifyUser } from './userNotice';
+import { onRemoteChange, syncedStorage } from './settingsSync';
 import { randomUuid } from './uuid';
 
 /** One saved connection preset. `name` is user-chosen — never the protocol's
@@ -102,8 +103,11 @@ function notifyProfiles(storage: ProfileStorage): void {
 
 function defaultStorage(): ProfileStorage {
   // Browser-only by construction: the UI is the only caller without injection.
-  return globalThis.localStorage;
+  return syncedStorage;
 }
+
+// A pull from the settings store replaced the stored list (settingsSync.ts).
+onRemoteChange('panda.profiles', () => notifyProfiles(defaultStorage()));
 
 function isProfile(value: unknown): value is AgentProfile {
   if (typeof value !== 'object' || value === null) return false;

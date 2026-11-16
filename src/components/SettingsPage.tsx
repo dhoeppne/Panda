@@ -31,6 +31,7 @@ import { navigate } from '../routes';
 import { isThemeId, loadThemeId, saveThemeId, subscribeTheme, THEMES, EXPOSED_THEME_IDS } from '../theme';
 import { FONT_SIZE_BOUNDS, loadFontSizePair, saveFontSize, subscribeFontSize, type FontSizeKnob } from '../fontSize';
 import { workspaceDisplay } from '../workspace';
+import { getSyncStatus, subscribeSyncStatus } from '../settingsSync';
 import { LOCALES, saveLocale } from '../i18n';
 import { t } from '../i18n';
 import { useI18n } from '../i18n/context';
@@ -168,7 +169,23 @@ function GeneralSection() {
       <SettingsRow title={t('settings.codeFontRow')} description={t('settings.codeFontRowDesc')}>
         <FontSizeStepper knob="code" />
       </SettingsRow>
+      <SyncStatusRow />
     </section>
+  );
+}
+
+/** One line for the settings store (server/README.md): on, with the user
+ * the server answered for, or off — settings then stay in this browser. */
+function SyncStatusRow() {
+  const { t } = useI18n();
+  const [status, setStatus] = useState(getSyncStatus);
+  useEffect(() => subscribeSyncStatus(setStatus), []);
+  return (
+    <SettingsRow title={t('settings.syncRow')}>
+      <span className="settings-row-value">
+        {status.state === 'on' ? t('settings.syncOn', { user: status.user }) : t('settings.syncOff')}
+      </span>
+    </SettingsRow>
   );
 }
 

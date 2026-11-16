@@ -13,6 +13,7 @@
  * fake.
  */
 import type { McpServer } from '@agentclientprotocol/sdk';
+import { onRemoteChange, syncedStorage } from './settingsSync';
 import { randomUuid } from './uuid';
 
 /** One configured MCP server. `args` is a single whitespace-separated line —
@@ -46,8 +47,11 @@ function notifyMcpServers(storage: McpServerStorage): void {
 
 function defaultStorage(): McpServerStorage {
   // Browser-only by construction: the UI is the only caller without injection.
-  return globalThis.localStorage;
+  return syncedStorage;
 }
+
+// A pull from the settings store replaced the stored list (settingsSync.ts).
+onRemoteChange('panda.mcpServers', () => notifyMcpServers(defaultStorage()));
 
 function isMcpServerConfig(value: unknown): value is McpServerConfig {
   if (typeof value !== 'object' || value === null) return false;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { loadProfiles, subscribeProfiles, type AgentProfile } from './profiles';
+import { onRemoteChange, syncedStorage } from './settingsSync';
 
 /**
  * The new-chat view (sidebar navigation): open while the user writes the
@@ -20,9 +21,10 @@ type NewChatState = {
 
 const LAST_FAMILY_KEY = 'panda.lastFamily';
 
+// Without localStorage (node tests) both helpers stay no-ops, as before sync.
 function readLastFamily(): string | null {
   try {
-    return globalThis.localStorage?.getItem(LAST_FAMILY_KEY) ?? null;
+    return globalThis.localStorage ? syncedStorage.getItem(LAST_FAMILY_KEY) : null;
   } catch {
     return null;
   }
@@ -30,7 +32,7 @@ function readLastFamily(): string | null {
 
 function writeLastFamily(familyId: string): void {
   try {
-    globalThis.localStorage?.setItem(LAST_FAMILY_KEY, familyId);
+    if (globalThis.localStorage) syncedStorage.setItem(LAST_FAMILY_KEY, familyId);
   } catch (err) {
     console.warn('[panda/new-chat] could not remember the last family', err);
   }
@@ -49,6 +51,9 @@ export const useNewChat = create<NewChatState>((set) => ({
   },
   close: () => set({ open: false }),
 }));
+
+// A pull from the settings store replaced the remembered family (settingsSync.ts).
+onRemoteChange('panda.lastFamily', () => useNewChat.setState({ familyId: readLastFamily() }));
 
 /** The family a new chat goes to: the remembered pick when it still exists,
  * else the first saved family. Null only with no families at all. */

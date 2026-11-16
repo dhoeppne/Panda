@@ -16,6 +16,8 @@
  * reset loudly, best-effort persistence that never throws.
  */
 
+import { onRemoteChange, syncedStorage } from './settingsSync';
+
 export type FontSizeKnob = 'ui' | 'code';
 
 /** [min, max] per knob, step 1 — the stepper disables at the bounds. */
@@ -60,8 +62,18 @@ function notify(storage: FontSizeStorage): void {
 }
 
 function defaultStorage(): FontSizeStorage {
-  return globalThis.localStorage;
+  return syncedStorage;
 }
+
+// A pull from the settings store replaced a stored size (settingsSync.ts):
+// apply the pair to <html> again, then refresh the steppers.
+function refreshFromRemote(): void {
+  const storage = defaultStorage();
+  applyFontSize(loadFontSizePair(storage));
+  notify(storage);
+}
+onRemoteChange('panda.fontSize.ui', refreshFromRemote);
+onRemoteChange('panda.fontSize.code', refreshFromRemote);
 
 export function isFontSizeValue(knob: FontSizeKnob, value: unknown): value is number {
   const [min, max] = FONT_SIZE_BOUNDS[knob];

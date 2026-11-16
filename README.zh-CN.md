@@ -61,7 +61,9 @@
   `panda-vX.Y.Z` 标签,并把 `arcane` 部署分支推进到同一个提交。失败或已被
   后续提交取代的构建不会改动这两个 ref。Arcane 2.17.2+ 可拉取该分支,开启
   **Sync Files** 与 **Redeploy After Sync** 后,根目录的 `compose.yaml` 会在
-  部署前重新构建镜像。
+  部署前重新构建镜像。本 fork 的 `compose.yaml` 另带一个可选的设置存储,同一个
+  Panda 地址在每台设备上显示相同的 agent 与偏好,见
+  [server/README.md](server/README.md)(英文)。
 
 ## 功能
 
