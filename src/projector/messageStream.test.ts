@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { projectMessageStream } from './messageStream';
-import type { BlockFlatItem, FlatItem } from './messageStream';
+import { projectGroupedStream, projectMessageStream } from './messageStream';
+import type { BlockFlatItem, FlatItem, StreamItem } from './messageStream';
 import { applyUpdate, emptySession } from '../protocol/reducer';
 import type {
+  AcpSessionUpdate,
+  Block,
   PermissionRequest,
   PermissionState,
   SessionDocument,
@@ -396,5 +398,127 @@ describe('projection context compaction rows', () => {
       .filter((item): item is BlockFlatItem => item.kind === 'block')
       .find((item) => item.block.kind === 'compaction_notice');
     expect(notice?.block).toMatchObject({ kind: 'compaction_notice', outcome: 'completed' });
+  });
+});
+
+describe('tool-call grouping', () => {
+  const tool = (call: ToolCallState): Block => ({ kind: 'tool_call', call });
+  const thought: Block = { kind: 'thought', parts: [{ type: 'text', text: 'hmm' }] } as Block;
+  const text = (t: string): Block =>
+    ({ kind: 'agent_message', messageId: t, parts: [{ type: 'text', text: t }] }) as unknown as Block;
+
+  function turns(...blocks: Block[][]): SessionDocument {
+    return {
+      ...documentWith(),
+      status: 'idle',
+      turns: blocks.map((list, i) => ({ id: `turn-${i + 1}`, blocks: list })),
+    };
+  }
+
+  /** A compact shape: 'group[a,b]' for groups, the call id for a tool block, the block kind otherwise. */
+  function shape(items: StreamItem[]): string[] {
+    return items.map((item) => {
+      if (item.kind === 'tool_group') {
+        return `group[${item.members.map((m) => (m.block.kind === 'tool_call' ? m.block.call.id : '?')).join(',')}]`;
+      }
+      if (item.kind === 'block') return item.block.kind === 'tool_call' ? item.block.call.id : item.block.kind;
+      return item.kind;
+    });
+  }
+
+  it('folds consecutive tool calls into one group', () => {
+    const doc = turns([text('m'), tool(toolCall('a', 'completed')), tool(toolCall('b', 'completed')), text('n')]);
+    expect(shape(projectGroupedStream(doc))).toEqual(['agent_message', 'group[a,b]', 'agent_message']);
+  });
+
+  it('leaves a single tool call as a plain card', () => {
+    const doc = turns([text('m'), tool(toolCall('a', 'completed')), text('n')]);
+    expect(shape(projectGroupedStream(doc))).toEqual(['agent_message', 'a', 'agent_message']);
+  });
+
+  it('ends a group at a thought', () => {
+    const doc = turns([
+      tool(toolCall('a', 'completed')),
+      tool(toolCall('b', 'completed')),
+      thought,
+      tool(toolCall('c', 'completed')),
+      tool(toolCall('d', 'completed')),
+    ]);
+    expect(shape(projectGroupedStream(doc))).toEqual(['group[a,b]', 'thought', 'group[c,d]']);
+  });
+
+  it('never folds calls across a turn boundary', () => {
+    const doc = turns(
+      [tool(toolCall('a', 'completed'))],
+      [tool(toolCall('b', 'completed')), tool(toolCall('c', 'completed'))],
+    );
+    expect(shape(projectGroupedStream(doc))).toEqual(['a', 'group[b,c]']);
+  });
+
+  it('keeps a failed call outside, right after its group', () => {
+    const doc = turns([
+      tool(toolCall('a', 'completed')),
+      tool(toolCall('b', 'failed')),
+      tool(toolCall('c', 'completed')),
+    ]);
+    expect(shape(projectGroupedStream(doc))).toEqual(['group[a,c]', 'b']);
+  });
+
+  it('keeps a call with a pending approval outside the group', () => {
+    const doc = withPermissions(
+      turns([
+        tool(toolCall('a', 'completed')),
+        tool(toolCall('b', 'completed')),
+        tool(toolCall('permission-id', 'pending')),
+      ]),
+      pendingState(permission),
+    );
+    const items = projectGroupedStream(doc);
+    expect(shape(items)).toEqual(['group[a,b]', 'permission-id']);
+    expect(items[1]).toMatchObject({ kind: 'block', permission: { state: 'pending' } });
+  });
+
+  it('does not fold a run when the calls left inside are fewer than two', () => {
+    const doc = turns([tool(toolCall('a', 'completed')), tool(toolCall('b', 'failed'))]);
+    expect(shape(projectGroupedStream(doc))).toEqual(['a', 'b']);
+  });
+
+  it('folds a turn built from protocol updates (the live and the session/load path)', () => {
+    const updates: AcpSessionUpdate[] = [
+      { sessionUpdate: 'user_message', content: [{ type: 'text', text: 'hi' }] },
+      { sessionUpdate: 'tool_call', toolCallId: 't-1', title: 'A', status: 'in_progress' },
+      { sessionUpdate: 'tool_call', toolCallId: 't-2', title: 'B', status: 'in_progress' },
+      { sessionUpdate: 'tool_call_update', toolCallId: 't-1', status: 'completed' },
+      { sessionUpdate: 'tool_call_update', toolCallId: 't-2', status: 'completed' },
+    ];
+    const doc = updates.reduce(applyUpdate, emptySession());
+    expect(shape(projectGroupedStream(doc))).toEqual(['user_message', 'group[t-1,t-2]']);
+  });
+
+  it('keeps the group key while the run grows', () => {
+    const two = turns([tool(toolCall('a', 'completed')), tool(toolCall('b', 'completed'))]);
+    const three = turns([
+      tool(toolCall('a', 'completed')),
+      tool(toolCall('b', 'completed')),
+      tool(toolCall('c', 'in_progress')),
+    ]);
+    expect(projectGroupedStream(three)[0]!.key).toBe(projectGroupedStream(two)[0]!.key);
+  });
+
+  it('keeps the group identity when nothing inside it changed (ADR 0006)', () => {
+    let doc = emptySession();
+    doc = applyUpdate(doc, { sessionUpdate: 'user_message', content: [{ type: 'text', text: 'hi' }] });
+    doc = applyUpdate(doc, { sessionUpdate: 'tool_call', toolCallId: 't-1', title: 'A', status: 'completed' });
+    doc = applyUpdate(doc, { sessionUpdate: 'tool_call', toolCallId: 't-2', title: 'B', status: 'completed' });
+    const before = projectGroupedStream(doc);
+    expect(before[1]?.kind).toBe('tool_group');
+    const after = projectGroupedStream(applyUpdate(doc, { sessionUpdate: 'usage_update', used: 5, size: 100 }));
+    expect(after[1]).toBe(before[1]);
+
+    const updated = projectGroupedStream(
+      applyUpdate(doc, { sessionUpdate: 'tool_call_update', toolCallId: 't-2', title: 'B2' }),
+    );
+    expect(updated[1]).not.toBe(before[1]);
+    expect(updated[1]?.key).toBe(before[1]?.key);
   });
 });

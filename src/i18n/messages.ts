@@ -215,6 +215,7 @@ export const messages = {
   // the verbs/labels in English. Do not "fix" the zh column to Chinese.
   'tool.thinking': { en: 'Thinking', zh: 'Thinking' },
   'tool.thought': { en: 'Thought', zh: 'Thought' },
+  'tool.group.count': { en: '{n} tool calls', zh: '{n} tool calls' },
   'tool.verb.read': { en: 'Read', zh: 'Read' },
   'tool.verb.edit': { en: 'Edit', zh: 'Edit' },
   'tool.verb.delete': { en: 'Delete', zh: 'Delete' },

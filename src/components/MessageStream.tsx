@@ -16,6 +16,7 @@ import type { Block, ElicitationResponse, PermissionOptionKind } from '../protoc
 import { AgentMessage } from './AgentMessage';
 import { ThoughtBlock } from './ThoughtBlock';
 import { ToolCallCard } from './ToolCallCard';
+import { ToolCallGroup } from './ToolCallGroup';
 import { UserMessage } from './UserMessage';
 import { ContentColumn } from './ContentColumn';
 import { AttachedPermissionCard } from './PermissionCard';
@@ -32,16 +33,17 @@ import {
   stickDecision,
   userScrollWindowEnd,
 } from './scrollPolicy';
-import type { AttachedPermission, BlockFlatItem, FlatItem } from '../projector/messageStream';
+import type { AttachedPermission, StreamItem } from '../projector/messageStream';
 import './MessageStream.css';
 import { useI18n } from '../i18n/context';
 
 /** Tool-run membership for the ZCode spacing ladder: cards inside a run
- * of consecutive tool_call blocks sit 8px apart; run edges against text
- * stay at 14px. CSS can't express this across the virtualizer's item
- * wrappers, so the flat sequence decides it here. */
-const isToolItem = (item: FlatItem | undefined): item is BlockFlatItem =>
-  item?.kind === 'block' && item.block.kind === 'tool_call';
+ * of consecutive tool_call blocks (or a group and the calls kept outside
+ * it) sit 8px apart; run edges against text stay at 14px. CSS can't
+ * express this across the virtualizer's item wrappers, so the flat
+ * sequence decides it here. */
+const isToolItem = (item: StreamItem | undefined): boolean =>
+  item?.kind === 'tool_group' || (item?.kind === 'block' && item.block.kind === 'tool_call');
 
 /**
  * Scroll-following policy: stick to the bottom while the user is already
@@ -78,6 +80,17 @@ export function MessageStream({ onResolvePermission, onResolveElicitation, onOpe
   pinnedRef.current = pinned;
 
   const items = useMessageStreamItems();
+
+  // Open tool groups, by group key. Kept here, not in the row: the
+  // virtualizer unmounts rows scrolled out of view. Groups start closed.
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((groupKey: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(groupKey)) next.add(groupKey);
+      return next;
+    });
+  }, []);
 
   // Unpin is USER-intent only (the rule lives in scrollPolicy.ts, #65):
   // wheel/touch/key/pointer-down open a short "user is scrolling" window;
@@ -247,6 +260,21 @@ export function MessageStream({ onResolvePermission, onResolveElicitation, onOpe
                     onResolve={onResolveElicitation}
                   />
                 )}
+              </ContentColumn>
+            );
+          }
+          if (item.kind === 'tool_group') {
+            return (
+              <ContentColumn>
+                <ToolCallGroup
+                  groupKey={item.key}
+                  members={item.members}
+                  open={openGroups.has(item.key)}
+                  onToggle={toggleGroup}
+                  onResolvePermission={onResolvePermission}
+                  prevIsTool={isToolItem(items[index - 1])}
+                  nextIsTool={isToolItem(items[index + 1])}
+                />
               </ContentColumn>
             );
           }
