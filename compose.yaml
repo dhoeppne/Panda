@@ -7,9 +7,30 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    depends_on:
+      - settings
     ports:
       - "${PANDA_BIND_ADDRESS:-127.0.0.1}:${PANDA_PORT:-8530}:8530"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+
+  # Optional settings store (server/README.md): nginx in `web` proxies
+  # /api/settings here. No published port: only `web` reaches it.
+  settings:
+    image: panda-settings:arcane
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: settings
+    restart: unless-stopped
+    volumes:
+      - panda-settings:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  panda-settings:

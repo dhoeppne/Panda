@@ -22,6 +22,28 @@ ARG PANDA_VERSION=""
 ENV PANDA_VERSION=${PANDA_VERSION}
 RUN pnpm build
 
+# Optional settings store (server/README.md). compose.yaml builds this stage
+# as its own image; nginx stays the last stage, so `docker build .` still
+# gives the web image.
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS settings
+
+WORKDIR /app
+COPY --chown=node:node server/settings-server.mjs ./settings-server.mjs
+RUN mkdir -p /data && chown node:node /data
+
+ENV PANDA_SETTINGS_DB=/data/settings.sqlite \
+    PANDA_SETTINGS_PORT=8531 \
+    PANDA_SETTINGS_BIND=0.0.0.0
+
+USER node
+VOLUME /data
+EXPOSE 8531
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8531/api/settings/healthz || exit 1
+
+CMD ["node", "settings-server.mjs"]
+
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 RUN apk add --no-cache nginx=1.30.6-r0 \

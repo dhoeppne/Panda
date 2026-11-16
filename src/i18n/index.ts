@@ -19,6 +19,7 @@
 export type Locale = 'en' | 'zh';
 
 import { messages, type MessageKey } from './messages';
+import { onRemoteChange, syncedStorage } from '../settingsSync';
 
 export const LOCALES: readonly Locale[] = ['en', 'zh'];
 export const DEFAULT_LOCALE: Locale = 'en';
@@ -40,8 +41,15 @@ const listeners = new Set<LocaleListener>();
 
 function defaultStorage(): LocaleStorage {
   // Browser-only by construction: the UI is the only caller without injection.
-  return globalThis.localStorage;
+  return syncedStorage;
 }
+
+// A pull from the settings store replaced the stored locale (settingsSync.ts).
+onRemoteChange('panda.locale', () => {
+  const locale = loadLocale(defaultStorage());
+  currentLocale = locale;
+  for (const listener of listeners) listener(locale);
+});
 
 export function isLocale(value: unknown): value is Locale {
   return value === 'en' || value === 'zh';

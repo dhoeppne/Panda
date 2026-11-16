@@ -9,6 +9,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { installConsoleTap } from './diagnostics';
 import { loadThemeId, resolveTheme, subscribeTheme } from './theme';
 import { applyFontSize, loadFontSizePair } from './fontSize';
+import { bootSettingsSync } from './settingsSync';
 import { I18nProvider } from './i18n/context';
 import { parseDevPage } from './routes';
 
@@ -27,6 +28,14 @@ applyFontSize(loadFontSizePair());
 if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
   void import('./desktop/boot').then((m) => m.bootDesktop());
 }
+
+// Settings sync (server/README.md): the first pull runs before the first
+// render, so this device opens on the synced agents and preferences. It
+// waits at most 1.5 s; a slow pull finishes in the background and the
+// modules refresh through their onRemoteChange callbacks. The font sizes
+// apply again because the pull may have replaced them.
+await bootSettingsSync();
+applyFontSize(loadFontSizePair());
 
 const root = createRoot(document.getElementById('root')!);
 

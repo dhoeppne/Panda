@@ -62,6 +62,9 @@ Pick by scenario — the desktop build connects stdio agents you develop; the we
   branch to the same commit. Failed and superseded builds change neither ref.
   Arcane 2.17.2+ can pull that branch with **Sync Files** and **Redeploy After
   Sync** enabled; the root `compose.yaml` rebuilds the image before deployment.
+  This fork's `compose.yaml` also adds an optional settings store, so one Panda
+  URL shows the same agents and preferences on every device; see
+  [server/README.md](server/README.md).
 
 ## Features
 

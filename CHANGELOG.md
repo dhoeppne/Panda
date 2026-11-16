@@ -8,6 +8,16 @@ follow the releases published from this repository.
 
 ### Added
 
+- **Settings sync across devices** — an optional settings store
+  (`server/settings-server.mjs`, the `settings` service in `compose.yaml`)
+  keeps agent profiles, the sidebar layout, MCP servers, theme, font sizes,
+  language and the last picked agent family per user in one SQLite file.
+  nginx proxies `/api/settings` to it. Panda pulls at boot (waiting at most
+  1.5 s before the first render), on focus, when the page becomes visible,
+  when the browser comes online and every 60 s, and pushes local changes
+  after 400 ms. The server wins a conflict. Without the store, Panda keeps
+  every setting in this browser only, as before. Every request is the user
+  `default` for now. Settings → General shows whether sync is on.
 - **The chat box grows with its text** — the box grows one line at a time
   as the text grows, and shrinks when text is deleted or the message is
   sent. Typed text, pasted text, a restored draft and a command completion

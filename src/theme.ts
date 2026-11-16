@@ -26,6 +26,7 @@ import { butterTheme } from '@astryxdesign/theme-butter/built';
 import { chocolateTheme } from '@astryxdesign/theme-chocolate/built';
 import { gothicTheme } from '@astryxdesign/theme-gothic/built';
 import { y2kTheme } from '@astryxdesign/theme-y2k/built';
+import { onRemoteChange, syncedStorage } from './settingsSync';
 
 export type ThemeId =
   | 'neutral' | 'matcha' | 'stone' | 'butter' | 'chocolate' | 'gothic' | 'y2k';
@@ -87,8 +88,11 @@ function notifyTheme(storage: ThemeStorage): void {
 
 function defaultStorage(): ThemeStorage {
   // Browser-only by construction: the UI is the only caller without injection.
-  return globalThis.localStorage;
+  return syncedStorage;
 }
+
+// A pull from the settings store replaced the stored choice (settingsSync.ts).
+onRemoteChange('panda.theme', () => notifyTheme(defaultStorage()));
 
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && THEMES.some((choice) => choice.id === value);
