@@ -18,8 +18,9 @@ import type {
 import {
   commandCompletion,
   commandKeyAction,
-  matchCommands,
+  commandMenu,
   wrapIndex,
+  type CommandSource,
 } from '../commands';
 import { ConfigPanelCard } from './ConfigPanel';
 import { usePopoverDismiss } from './usePopoverDismiss';
@@ -84,7 +85,7 @@ export function submitAction(input: {
   return input.canQueue ? 'queue' : 'none';
 }
 
-export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAttachImages, canStop, onStop, modes, onSetMode, commands, configOptions, onSetConfigOption, sessionKey, family }: {
+export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAttachImages, canStop, onStop, modes, onSetMode, commandSource, configOptions, onSetConfigOption, sessionKey, family }: {
   /** The family chip (picker in a new chat, locked label in an existing one). */
   family?: React.ReactNode;
   onSend: (content: AcpContentBlock[]) => void;
@@ -111,8 +112,8 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   /** Session modes from the document; null hides the picker entirely. */
   modes: AcpSessionModeState | null;
   onSetMode: (modeId: string) => void;
-  /** Agent-advertised slash commands; drives the `/` autocomplete panel. */
-  commands: AcpAvailableCommand[];
+  /** Where the `/` menu's list comes from (commands.ts CommandSource). */
+  commandSource: CommandSource;
   /** Agent-advertised session config options; null/[] hides the settings entry. */
   configOptions: AcpConfigOption[] | null;
   onSetConfigOption: (configId: string, value: string | boolean) => void;
@@ -157,7 +158,15 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
   const attachmentDisabled = inputLocked || !canAttachImages;
   // Panel visibility derives from the text (open only while typing the
   // command name); Escape suppresses it until the input changes again.
-  const commandItems = commandsDismissed || inputLocked ? null : matchCommands(commands, value);
+  const menu = commandsDismissed || inputLocked ? null : commandMenu(commandSource, value);
+  const commandItems = menu?.kind === 'list' ? menu.items : [];
+  const menuFamily = menu?.family ?? null;
+  // A family switch swaps the list: the highlight starts at the top again.
+  useEffect(() => setCommandIndex(0), [menuFamily]);
+  const activeCommandRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeCommandRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [commandIndex, menuFamily]);
   const hasConfigOptions = configOptions !== null && configOptions.length > 0;
 
   const completeCommand = (command: AcpAvailableCommand) => {
@@ -188,8 +197,8 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(e.nativeEvent)) return;
-    if (commandItems) {
-      const action = commandKeyAction(e);
+    if (menu) {
+      const action = commandKeyAction(e, commandItems.length);
       if (action) {
         e.preventDefault();
         if (action.type === 'complete') {
@@ -269,31 +278,65 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, canAtt
         <div
           className={`composer-card ${disabled ? 'composer-card--disabled' : ''}`}
         >
-          {commandItems && (
-            <div className="composer-commands" role="listbox" aria-label={t('composer.commands')}>
-              {commandItems.map((command, index) => (
-                <button
-                  key={command.name}
-                  type="button"
-                  role="option"
-                  aria-selected={index === commandIndex}
-                  className={`composer-command ${index === commandIndex ? 'composer-command--active' : ''}`}
-                  // mousedown (not click): completes before the textarea loses
-                  // focus, so typing can continue in the argument right away.
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    completeCommand(command);
-                  }}
-                  onMouseEnter={() => setCommandIndex(index)}
-                >
-                  <span className="composer-command-name">/{command.name}</span>
-                  <span className="composer-command-desc">{command.description}</span>
-                </button>
-              ))}
-              {commandItems[commandIndex]?.inputHint && (
-                <div className="composer-commands-hint">
-                  {t('composer.paramHint', { hint: commandItems[commandIndex].inputHint })}
+          {menu && (
+            <div className="composer-commands">
+              <div className="composer-commands-head">
+                <span>{t('composer.skills', { family: menu.family })}</span>
+                {menu.kind === 'list' && (
+                  <span>
+                    {menu.query
+                      ? t('composer.skillsMatched', { count: String(menu.items.length), total: String(menu.total) })
+                      : String(menu.total)}
+                  </span>
+                )}
+              </div>
+              {menu.kind === 'loading' && (
+                <div className="composer-commands-state" role="status">
+                  <span className="composer-commands-spinner" aria-hidden="true" />
+                  {t('composer.skillsLoading', { family: menu.family })}
                 </div>
+              )}
+              {menu.kind === 'offline' && (
+                <div className="composer-commands-state" role="status">
+                  {t('composer.skillsOffline', { family: menu.family })}
+                </div>
+              )}
+              {menu.kind === 'list' && menu.items.length === 0 && (
+                <div className="composer-commands-state" role="status">
+                  {t('composer.skillsNoMatch', { query: `/${menu.query}` })}
+                </div>
+              )}
+              {commandItems.length > 0 && (
+                <>
+                  <div className="composer-commands-list" role="listbox" aria-label={t('composer.commands')}>
+                    {commandItems.map((command, index) => (
+                      <button
+                        key={command.name}
+                        ref={index === commandIndex ? activeCommandRef : undefined}
+                        type="button"
+                        role="option"
+                        aria-selected={index === commandIndex}
+                        className={`composer-command ${index === commandIndex ? 'composer-command--active' : ''}`}
+                        // mousedown (not click): completes before the textarea loses
+                        // focus, so typing can continue in the argument right away.
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          completeCommand(command);
+                        }}
+                        onMouseEnter={() => setCommandIndex(index)}
+                      >
+                        <span className="composer-command-name">/{command.name}</span>
+                        <span className="composer-command-desc">{command.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {commandItems[commandIndex]?.inputHint && (
+                    <div className="composer-commands-hint">
+                      {t('composer.paramHint', { hint: commandItems[commandIndex].inputHint })}
+                    </div>
+                  )}
+                  <div className="composer-commands-keys">{t('composer.skillsKeys')}</div>
+                </>
               )}
             </div>
           )}

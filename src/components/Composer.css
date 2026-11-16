@@ -305,3 +305,74 @@
   font-size: var(--panda-size-micro);
   color: var(--color-faint);
 }
+
+/* Header: the family whose skills these are, and the match count. */
+.composer-commands-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 14px 5px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--panda-size-micro);
+  color: var(--color-muted);
+}
+
+/* A family grants about 15 skills: the list scrolls inside the menu so the
+ * menu stays between the top of the view and the chat bar, also with an
+ * on-screen keyboard open. */
+.composer-commands-list {
+  max-height: min(248px, 40dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* No match, loading, offline: one line of muted text (informative, AA). */
+.composer-commands-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: var(--panda-size-chrome);
+  color: var(--color-muted);
+}
+
+.composer-commands-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: composer-commands-spin 0.9s linear infinite;
+}
+
+@keyframes composer-commands-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-commands-spinner { animation: none; }
+}
+
+.composer-commands-keys {
+  padding: 6px 14px;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--panda-size-micro);
+  color: var(--color-faint);
+}
+
+/* Touch: no keys to name. */
+@media (pointer: coarse) {
+  .composer-commands-keys { display: none; }
+}
+
+/* Phone width: the name sits over one line of its description. */
+@media (max-width: 480px) {
+  .composer-command {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+    padding: 8px 12px;
+  }
+  .composer-commands-list { max-height: min(214px, 34dvh); }
+}

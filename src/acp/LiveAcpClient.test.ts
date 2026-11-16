@@ -33,7 +33,8 @@ import {
   type ConnectionStorePort,
   type SessionSwitchSnapshot,
 } from '../store';
-import type { AcpSessionUpdate, SessionStatus } from '../protocol/types';
+import type { AcpAvailableCommand, AcpSessionUpdate, SessionStatus } from '../protocol/types';
+import { COMMANDS_META_KEY } from './wire';
 
 /**
  * Drives LiveAcpClient against a scripted SDK `agent()` app over an in-memory
@@ -57,6 +58,8 @@ type Records = {
   sessionInfos: { sessionId: string; title?: string | null; updatedAt?: string | null }[];
   replays: number[];
   deletedSessions: string[];
+  /** onFamilyCommands emissions (initialize `_meta["creche/commands"]`). */
+  familyCommands: (AcpAvailableCommand[] | null)[];
   /** onAuthChallenge emissions (v1 auth_required recovery). */
   authChallenges: { methods: { id: string; name: string; description?: string }[]; message: string }[];
   /** initialize 的常驻登录方式(#90)。 */
@@ -136,6 +139,8 @@ type FakeAgentOptions = {
   mcpServers?: () => McpServerConfig[];
   /** authMethods advertised at initialize (v1 auth). */
   authMethods?: AuthMethod[];
+  /** The `_meta` of the initialize answer (creche extensions). */
+  initializeMeta?: Record<string, unknown>;
   /** session/new rejects with auth_required until `authenticate` runs. */
   authGate?: boolean;
   /** Also advertise auth.logout support at initialize. */
@@ -240,6 +245,7 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
     sessionInfos: [],
     replays: [],
     deletedSessions: [],
+    familyCommands: [],
     authChallenges: [],
     authMethodOffers: [],
     authedMethodIds: [],
@@ -263,6 +269,7 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
     onAuthMethods: (methods) => records.authMethodOffers.push(methods),
     onAuthenticated: (methodId) => records.authedMethodIds.push(methodId),
     onCapabilities: (caps) => records.capabilities.push(caps),
+    onFamilyCommands: (commands) => records.familyCommands.push(commands),
     onSessions: (entries) => records.sessions.push(entries),
     onSessionInfo: (sessionId, info) => records.sessionInfos.push({ sessionId, ...info }),
     onReplayStart: () => records.replays.push(records.replays.length + 1),
@@ -329,6 +336,7 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
           ...(caps.rewind ? { _meta: { [REWIND_CAPABILITY]: {} } } : {}),
         },
         ...(opts.authMethods ? { authMethods: opts.authMethods } : {}),
+        ...(opts.initializeMeta ? { _meta: opts.initializeMeta } : {}),
       };
     })
     .onRequest(methods.agent.session.new, async (ctx) => {
@@ -1523,6 +1531,22 @@ describe('LiveAcpClient', () => {
   it('reads creche/rewind from the _meta of agentCapabilities', async () => {
     const h = await setup({ capabilities: { rewind: true } });
     expect(h.capabilities.at(-1)?.rewind).toBe(true);
+    h.closeAll();
+  });
+
+  it('reads the family commands from the _meta of the initialize answer', async () => {
+    const h = await setup({
+      initializeMeta: {
+        [COMMANDS_META_KEY]: { availableCommands: [{ name: 'grill-me', description: 'Ask hard questions.' }] },
+      },
+    });
+    expect(h.familyCommands).toEqual([[{ name: 'grill-me', description: 'Ask hard questions.', inputHint: null }]]);
+    h.closeAll();
+  });
+
+  it('reports no family commands when the initialize answer carries none', async () => {
+    const h = await setup();
+    expect(h.familyCommands).toEqual([null]);
     h.closeAll();
   });
 

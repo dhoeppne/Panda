@@ -5,6 +5,7 @@ import { useComposerDrafts } from './composerDrafts';
 import { useMessageQueue } from './messageQueue';
 import type {
   AcpAuthMethod,
+  AcpAvailableCommand,
   AcpSessionUpdate,
   ElicitationRequest,
   SessionDocument,
@@ -127,6 +128,12 @@ export type AgentCapabilityInfo = AgentCapabilityDeclarations;
 export type ConnectionState = {
   connection: ConnectionInfo;
   capabilities: AgentCapabilityInfo;
+  /**
+   * The family's slash commands from its last `initialize` answer, for a
+   * new chat that has no session yet. null = none received. Kept across a
+   * drop: the next `initialize` replaces it.
+   */
+  familyCommands: AcpAvailableCommand[] | null;
   /** Sidebar list — belongs to this connection's endpoint only. */
   sessions: SessionEntry[];
   docs: Record<string, SessionDocument>;
@@ -257,6 +264,7 @@ export function emptyConnectionState(): ConnectionState {
   return {
     connection: initialConnection,
     capabilities: initialCapabilities,
+    familyCommands: null,
     sessions: [],
     docs: {},
     switching: null,
@@ -395,6 +403,7 @@ export type ConnectionStorePort = {
   /** Clears the adopted session's document (permissions live inside it). */
   resetDocument(): void;
   setCapabilities(caps: AgentCapabilityInfo): void;
+  setFamilyCommands(commands: AcpAvailableCommand[] | null): void;
   /** Upserts entries by sessionId; locally-known sessions are preserved. */
   mergeSessions(entries: SessionEntry[]): void;
   /** Replaces the visible list when the selected connection target changes. */
@@ -623,6 +632,7 @@ export function connectionStorePort(connectionId: string): ConnectionStorePort {
       }));
     },
     setCapabilities: (caps) => patchSlot(() => ({ capabilities: caps })),
+    setFamilyCommands: (commands) => patchSlot(() => ({ familyCommands: commands })),
     mergeSessions: (entries) =>
       patchSlot((state) => ({ sessions: upsertEntries(state.sessions, entries) })),
     replaceSessions: (entries) =>

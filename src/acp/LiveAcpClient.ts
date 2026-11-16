@@ -20,6 +20,7 @@ import type { AcpTransport } from './transport/AcpTransport';
 import { t } from '../i18n';
 import type {
   AcpAuthMethod,
+  AcpAvailableCommand,
   AcpConfigOption,
   AcpContentBlock,
   AcpSessionModeState,
@@ -36,6 +37,7 @@ import {
   toConfigOptions,
   toElicitationFormRequest,
   toElicitationUrlRequest,
+  toFamilyCommands,
   toPermissionRequest,
   toSessionModeState,
 } from './wire';
@@ -118,6 +120,12 @@ export type LiveClientHandlers = {
    */
   onAuthElicitation(request: ElicitationRequest | null): void;
   onCapabilities(caps: AgentCaps): void;
+  /**
+   * The family's slash commands from the `initialize` answer
+   * (`_meta["creche/commands"]`), for a new chat that has no session yet.
+   * null = the agent sent none.
+   */
+  onFamilyCommands?(commands: AcpAvailableCommand[] | null): void;
   /**
    * Agent-managed login methods advertised at initialize (v1 auth) — the
    * always-visible entry for proactive authentication. Empty array = the
@@ -588,6 +596,7 @@ export class LiveAcpClient {
       this.initInfo = { agentName, protocolVersion: init.protocolVersion };
       this.handlers.onCapabilities(this.capabilities);
       this.handlers.onAuthMethods(this.authMethods);
+      this.handlers.onFamilyCommands?.(toFamilyCommands(init._meta));
       if (opts?.probe) {
         // The handshake answered the question (#221) — settle as connected
         // and drop the link; no session is ever established.
