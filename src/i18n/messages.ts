@@ -631,6 +631,9 @@ export const messages = {
   },
   'lifecycle.switching': { en: 'Switching session…', zh: '切换会话中…' },
 
+  // ---- session loading (the column while a session switch replays) ----
+  'session.loading': { en: 'Loading session…', zh: '正在加载会话…' },
+
   // ---- live connection driver ----
   'live.switchFailedTitled': {
     en: 'Switching to “{title}” failed: {reason}',

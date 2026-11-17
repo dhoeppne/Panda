@@ -134,9 +134,9 @@ export type ForegroundLifecycle = {
 // Main view ownership (#200 onboarding, #218 offline reading)
 // ---------------------------------------------------------------------------
 
-/** Which of the three surfaces owns the content column (ADR 0006's
+/** Which of the four surfaces owns the content column (ADR 0006's
  * meaning-vs-pixels: this is the meaning, App renders it). */
-export type MainView = 'auth-gate' | 'onboarding' | 'message-stream';
+export type MainView = 'auth-gate' | 'onboarding' | 'session-loading' | 'message-stream';
 
 /**
  * Onboarding shows only when the foreground has NO session document to show —
@@ -153,6 +153,11 @@ export function mainView(input: {
   // The auth gate comes first (App's historical branch order): a login
   // challenge owns the view even mid-session.
   if (phase === 'auth-required' || authElicitation !== null) return 'auth-gate';
+  // A session switch in flight: the target session is loading. The UI
+  // pointer still sits on the session being left (the switch commits only
+  // after the replay), so the stream would show the conversation the user
+  // just left — the loading surface waits for the target instead.
+  if (phase === 'switching-session') return 'session-loading';
   return activeSessionId === null ? 'onboarding' : 'message-stream';
 }
 

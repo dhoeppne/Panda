@@ -1,9 +1,10 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowLeft, Menu } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, sessionRowLabel } from './components/Sidebar';
 import { INTERACTIVE_CONTROL_SELECTOR } from './components/scrollPolicy';
 import { MessageStream } from './components/MessageStream';
+import { SessionLoading } from './components/SessionLoading';
 import { EmptyState } from './components/EmptyState';
 import { AuthGate } from './components/AuthGate';
 import { agentLabel, StatusBar } from './components/StatusBar';
@@ -15,6 +16,7 @@ import {
   useActiveDoc,
   useActiveEffectiveCapabilities,
   useActiveSessions,
+  useActiveSwitching,
   usePanda,
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
@@ -242,6 +244,13 @@ function MainScreen() {
   });
 
   const activeSession = sessions.find((entry) => entry.sessionId === activeSessionId);
+  // The session a switch is loading: the UI pointer still sits on the
+  // session being left (the switch commits only after the replay), so the
+  // header names the target the user clicked while the column waits for it.
+  const switching = useActiveSwitching();
+  const loadingSession = switching
+    ? sessions.find((entry) => entry.sessionId === switching.sessionId)
+    : undefined;
   // On the settings route the header carries the ACTIVE SECTION's title and
   // description (#140): the page-level header inside the column is gone, so
   // the top bar is where "which settings page am I on" answers itself. The
@@ -251,7 +260,9 @@ function MainScreen() {
     ? t(settingsSectionMeta?.titleKey ?? 'settings.title')
     : showNewChat
       ? t('side.newChat')
-      : (activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
+      : (loadingSession
+          ? sessionRowLabel(loadingSession, undefined)
+          : activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
   const headerMeta = onSettings
     ? (settingsSectionMeta ? t(settingsSectionMeta.descKey) : null)
     : showNewChat
@@ -345,7 +356,12 @@ function MainScreen() {
           </div>
         ) : (
           <>
-            {doc.plan && doc.plan.length > 0 && <PlanDock entries={doc.plan} />}
+            {/* The plan dock belongs to the session in view: while a switch
+                loads the next one, the plan of the session being left must
+                not linger above the loading state. */}
+            {view !== 'session-loading' && doc.plan && doc.plan.length > 0 && (
+              <PlanDock entries={doc.plan} />
+            )}
             {/* The auth gate owns the main view for a login challenge AND for
                 the login flow's elicitation while the link stays up (bug
                 hunt #8): mid-connection re-login keeps the old session, and
@@ -360,6 +376,11 @@ function MainScreen() {
                 onResolveElicitation={controller.resolveElicitation}
                 onOpenElicitationUrl={controller.openElicitationUrl}
               />
+            ) : view === 'session-loading' ? (
+              // A session switch is in flight: the target's history is
+              // replaying over the wire, so the column waits for it instead
+              // of showing the conversation the user just left.
+              <SessionLoading />
             ) : view === 'onboarding' ? (
               // First-run onboarding (#200): no foreground session document
               // to show → the two ways in (connect your own agent / existing
