@@ -1,0 +1,192 @@
+# The Forgejo copy of .github/workflows/ci.yml. Forgejo reads this directory
+# and ignores .github/workflows once it exists, so ci.yml, pr-title.yml,
+# deploy.yml and desktop.yml there run on GitHub only. desktop.yml needs
+# macOS and Windows runners and stays on GitHub.
+#
+# Keep the workflow name `CI` and the job name `test`: Forgejo posts the
+# status `CI / test (pull_request)`, and the protection of main requires
+# that name.
+#
+# Each job runs on the label `ci-vm`: a fresh VM per job, destroyed after
+# the job. The steps run in the VM itself as the user `runner`, which is in
+# the `docker` group. The VM has Ubuntu 24.04, git, Docker and Node 24 in
+# /usr/local. No cache survives from one VM to the next, so no step restores
+# or saves a cache.
+#
+# Forgejo ignores `permissions:`. The key stays so the intent reads the same
+# as the GitHub copy.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ci-vm
+    timeout-minutes: 30
+    steps:
+      # The mirror on code.forgejo.org holds the same commit as the GitHub pin.
+      - uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # 仓库无 packageManager 字段,须显式指定版本(本地 11.22,lockfile v9)。
+      # The mirror on code.forgejo.org holds the same commit as the GitHub pin.
+      - uses: https://code.forgejo.org/pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 11
+
+      # e2e 以 process.execPath spawn test-agent 且不带 --experimental-sqlite,
+      # node:sqlite 必须无 flag 可用,固着 Node 24(与本地开发版本一致)。
+      # The VM image ships Node 24, so no setup-node step downloads it again.
+      # This step fails if a new image changes the major version.
+      - name: Check Node 24
+        run: |
+          node --version
+          test "$(node -p 'process.versions.node.split(".")[0]')" = 24
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+      - run: pnpm --filter panda-test-agent typecheck
+
+      # workspace 安装后 test-agent/node_modules 存在,deepagents WebSocket e2e
+      # 自动启用;CI 无 .env,确定性剧本模型,无真实模型调用
+      - run: pnpm test
+      - run: pnpm --filter panda-test-agent test
+
+  # Keep pull requests fast: the image is built only after main's full suite
+  # passes. A green image gets one immutable panda-vX.Y.Z tag, then advances
+  # the `arcane` deployment branch to that exact commit. A failed or
+  # superseded run changes neither ref.
+  #
+  # The job token pushes the tag and the branch. It can push to any branch
+  # that is not protected, and its pushes start no new workflow run. Keep
+  # `arcane` and the panda-v* tags out of any protection that refuses the
+  # job token.
+  container-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ci-vm
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Plan release tag
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          tip="$(git rev-parse origin/main)"
+          if [[ "$GITHUB_SHA" != "$tip" ]]; then
+            echo "Current main is $tip; $GITHUB_SHA was superseded, so it gets no tag."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          existing="$(git tag --points-at "$GITHUB_SHA" --list 'panda-v*' | sort -V | tail -n 1)"
+          if [[ -n "$existing" ]]; then
+            tag="$existing"
+            create=false
+          else
+            base="$(node -p "require('./package.json').version")"
+            mapfile -t tags < <(git tag --list 'panda-v*')
+            tag="$(node scripts/next-release-tag.mjs "$base" "${tags[@]}")"
+            create=true
+          fi
+
+          version="${tag#panda-v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::planned tag is not panda-vX.Y.Z: $tag"
+            exit 1
+          fi
+          {
+            echo "build=true"
+            echo "create=$create"
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+      # The VM starts with an empty Docker store, so each build pulls the
+      # base images and runs pnpm install again.
+      - name: Build container
+        if: steps.plan.outputs.build == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: >-
+          docker build
+          --build-arg "PANDA_VERSION=$VERSION"
+          --build-arg "VCS_REF=$GITHUB_SHA"
+          --tag "panda:$TAG"
+          .
+
+      - name: Smoke-test container
+        if: steps.plan.outputs.build == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          container="$(docker run --detach --rm "panda:$TAG")"
+          trap 'docker stop "$container" >/dev/null' EXIT
+
+          for attempt in {1..20}; do
+            if [[ "$(docker exec "$container" wget -q -O - http://127.0.0.1:8530/healthz 2>/dev/null || true)" == "ok" ]]; then
+              break
+            fi
+            if [[ "$attempt" == 20 ]]; then
+              docker logs "$container"
+              echo "::error::container did not become healthy"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec "$container" wget -q -O /tmp/index.html http://127.0.0.1:8530/
+          docker exec "$container" test -s /tmp/index.html
+          docker exec "$container" grep -R -q -- "$VERSION" /usr/share/nginx/html/assets
+          test "$(docker image inspect --format '{{.Config.User}}' "panda:$TAG")" = "101"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "panda:$TAG")" = "$VERSION"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "panda:$TAG")" = "$GITHUB_SHA"
+
+      # The tagger is the job token's user, `forgejo-actions`. The address
+      # is a placeholder that no mail reaches.
+      - name: Create release tag
+        if: steps.plan.outputs.create == 'true'
+        shell: bash
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name forgejo-actions
+          git config user.email forgejo-actions@noreply.invalid
+          git tag --annotate "$TAG" "$GITHUB_SHA" --message "Panda $VERSION"
+          git push origin "refs/tags/$TAG"
+          echo "Created $TAG at $GITHUB_SHA after the container smoke test." >> "$GITHUB_STEP_SUMMARY"
+
+      # Arcane Git Sync selects branches, not tag patterns. This branch moves
+      # only after the same commit passed tests, image build, and smoke test.
+      - name: Advance Arcane deployment branch
+        if: steps.plan.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "$GITHUB_SHA:refs/heads/arcane"
+          echo "Advanced the Arcane deployment branch to $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
