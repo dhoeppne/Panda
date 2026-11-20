@@ -1,0 +1,16 @@
+/* The content column while a session loads: a quiet spinner, centered. */
+
+.session-loading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+
+.session-loading-label {
+  font-size: var(--panda-size-chrome);
+  color: var(--color-muted);
+}
