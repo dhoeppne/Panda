@@ -9,6 +9,7 @@ import {
   connectLiveConnection,
   connectProfilesInBackground,
   deleteLiveSession,
+  extraConnectionId,
   disconnectLiveConnection,
   foregroundConnection,
   lastConnectionDefaults,
@@ -16,6 +17,8 @@ import {
   newLiveSession,
   openLiveSession,
   persistSessionsSnapshot,
+  profileIdOfConnection,
+  reconcileProfileSlots,
   reconnectLiveConnection,
   removeLiveConnection,
   restoreEndpointSessions,
@@ -1364,5 +1367,135 @@ describe('merged chat list connects (navigation redesign)', () => {
     const stubs = installStubClients();
     await connectedStub('agent-a', stubs, 's-old');
     await expect(startChatSession(profile('agent-a'))).resolves.toBe(false);
+  });
+});
+
+describe('a second live session of one family', () => {
+  /**
+   * A stub factory whose connect answers with a session and an identity,
+   * the way a real agent does. The session id names the connection that
+   * holds it, so a test can tell the two links of a family apart.
+   */
+  function answeringStubs(): StubbedClient[] {
+    const stubs: StubbedClient[] = [];
+    __setDefaultClientFactory((handlers) => {
+      const n = stubs.length + 1;
+      const stub: StubbedClient = {
+        handlers,
+        client: {
+          connect: vi.fn(async () => {
+            handlers.onSessionId(`s-${n}`, '/agent-a');
+            handlers.onConnected({ agentName: 'agent-a', protocolVersion: 1 });
+          }),
+          disconnect: vi.fn(() => handlers.onDisconnected(null)),
+          newSession: vi.fn(async () => {}),
+          loadSession: vi.fn(async () => {}),
+          deleteSession: vi.fn(async () => {}),
+          send: vi.fn(async () => {}),
+          resolvePermission: vi.fn(),
+          cancel: vi.fn(),
+        } as unknown as LiveAcpClient,
+      };
+      stubs.push(stub);
+      return stub.client;
+    });
+    return stubs;
+  }
+
+  it('opens a second connection when the family connection runs a turn', async () => {
+    const stubs = answeringStubs();
+    await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, {
+      kind: 'local-directory',
+      path: '/agent-a',
+    });
+    // The family's session runs a turn: the connection is busy.
+    stubs[0]!.handlers.onUpdate({ sessionUpdate: 'status_changed', status: 'running' });
+
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+
+    const state = usePanda.getState();
+    const extra = extraConnectionId('agent-a', 1);
+    expect(state.connections[extra]?.connection.status).toBe('connected');
+    expect(state.connections[extra]?.connection.sessionId).toBe('s-2');
+    // The running session keeps its link and its turn.
+    expect(state.connections['agent-a']?.connection.sessionId).toBe('s-1');
+    expect(state.connections['agent-a']?.docs['s-1']?.status).toBe('running');
+    // The new connection is the foreground: the new chat is what the user reads.
+    expect(state.activeConnectionId).toBe(extra);
+  });
+
+  it('reuses the family connection when no turn runs', async () => {
+    const stubs = answeringStubs();
+    await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, {
+      kind: 'local-directory',
+      path: '/agent-a',
+    });
+    vi.mocked(stubs[0]!.client.newSession).mockImplementation(async () => {
+      stubs[0]!.handlers.onSessionId('s-new', '/agent-a');
+    });
+
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+
+    const state = usePanda.getState();
+    expect(state.connections[extraConnectionId('agent-a', 1)]).toBeUndefined();
+    expect(state.activeConnectionId).toBe('agent-a');
+  });
+
+  it('opens a second connection when the first one refuses the new session', async () => {
+    const stubs = answeringStubs();
+    await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, {
+      kind: 'local-directory',
+      path: '/agent-a',
+    });
+    // A turn starts between the check and session/new: the client refuses.
+    vi.mocked(stubs[0]!.client.newSession).mockImplementation(async () => {
+      stubs[0]!.handlers.onUpdate({ sessionUpdate: 'status_changed', status: 'running' });
+    });
+
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+
+    const state = usePanda.getState();
+    expect(state.connections[extraConnectionId('agent-a', 1)]?.connection.status).toBe('connected');
+  });
+
+  it('uses the second connection for the next chat while the first still runs', async () => {
+    const stubs = answeringStubs();
+    await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, {
+      kind: 'local-directory',
+      path: '/agent-a',
+    });
+    stubs[0]!.handlers.onUpdate({ sessionUpdate: 'status_changed', status: 'running' });
+
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+    // The second connection runs a turn too: the third chat needs a third link.
+    stubs[1]!.handlers.onUpdate({ sessionUpdate: 'status_changed', status: 'running' });
+
+    await expect(startChatSession(profile('agent-a'))).resolves.toBe(true);
+
+    const state = usePanda.getState();
+    expect(state.connections[extraConnectionId('agent-a', 2)]?.connection.status).toBe('connected');
+    expect(state.activeConnectionId).toBe(extraConnectionId('agent-a', 2));
+  });
+
+  it('drops the extra connections of a family that was deleted', async () => {
+    const stubs = answeringStubs();
+    await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, {
+      kind: 'local-directory',
+      path: '/agent-a',
+    });
+    stubs[0]!.handlers.onUpdate({ sessionUpdate: 'status_changed', status: 'running' });
+    await startChatSession(profile('agent-a'));
+    expect(usePanda.getState().connections[extraConnectionId('agent-a', 1)]).toBeDefined();
+
+    reconcileProfileSlots([]);
+
+    expect(usePanda.getState().connections[extraConnectionId('agent-a', 1)]).toBeUndefined();
+    expect(usePanda.getState().connections['agent-a']).toBeUndefined();
+  });
+
+  it('names the profile that owns a connection id', () => {
+    expect(profileIdOfConnection('agent-a')).toBeNull();
+    expect(profileIdOfConnection(extraConnectionId('agent-a', 3))).toBe('agent-a');
+    expect(profileIdOfConnection('direct:abc')).toBeNull();
   });
 });

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { emptySession } from '../protocol/reducer';
 import type { SessionDocument } from '../protocol/types';
-import type { SessionEntry } from '../store';
-import { firstUserMessageText, sessionRowLabel, sessionRowMeta } from './Sidebar';
+import { emptyConnectionState, type ConnectionState, type SessionEntry } from '../store';
+import { chatRows, familyLifecycle, firstUserMessageText, sessionRowLabel, sessionRowMeta } from './Sidebar';
+import type { AgentProfile } from '../profiles';
 
 /** A document whose turns carry the given user-message content parts. */
 function docWith(parts: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>): SessionDocument {
@@ -69,5 +70,97 @@ describe('firstUserMessageText', () => {
 describe('sessionRowMeta (#221: the short id demotes to hover meta)', () => {
   it('pairs the workspace label with the id\'s last six characters', () => {
     expect(sessionRowMeta(entry())).toBe('sandbox · f53c9a');
+  });
+});
+
+describe('chatRows (the merged list of a family with two connections)', () => {
+  const profile = (id: string): AgentProfile => ({
+    id,
+    name: id,
+    kind: 'websocket',
+    url: `ws://${id}/acp`,
+    workspace: { kind: 'none' },
+    mcpServerIds: [],
+  });
+
+  it('lists one row per chat when two connections share the endpoint', () => {
+    const sessions = [entry({ sessionId: 's-1' }), entry({ sessionId: 's-2' })];
+    const rows = chatRows(
+      [
+        { connectionId: 'family-a', endpoint: 'ws://family-a/acp', heldSessionId: 's-1', sessions },
+        { connectionId: 'family-a#1', endpoint: 'ws://family-a/acp', heldSessionId: 's-2', sessions },
+      ],
+      [profile('family-a')],
+    );
+
+    expect(rows.map((row) => row.sessionId)).toEqual(['s-1', 's-2']);
+  });
+
+  it('gives each chat the connection that holds it', () => {
+    const sessions = [entry({ sessionId: 's-1' }), entry({ sessionId: 's-2' })];
+    const rows = chatRows(
+      [
+        { connectionId: 'family-a', endpoint: 'ws://family-a/acp', heldSessionId: 's-1', sessions },
+        { connectionId: 'family-a#1', endpoint: 'ws://family-a/acp', heldSessionId: 's-2', sessions },
+      ],
+      [profile('family-a')],
+    );
+
+    expect(rows.find((row) => row.sessionId === 's-1')?.connectionId).toBe('family-a');
+    expect(rows.find((row) => row.sessionId === 's-2')?.connectionId).toBe('family-a#1');
+  });
+
+  it('names the family of an extra connection', () => {
+    const rows = chatRows(
+      [{ connectionId: 'family-a#1', endpoint: 'ws://family-a/acp', heldSessionId: 's-1', sessions: [entry()] }],
+      [profile('family-a')],
+    );
+
+    expect(rows[0]?.familyName).toBe('family-a');
+  });
+
+  it('keeps the chats of two families apart', () => {
+    const rows = chatRows(
+      [
+        { connectionId: 'family-a', endpoint: 'ws://family-a/acp', heldSessionId: 's-1', sessions: [entry({ sessionId: 's-1' })] },
+        { connectionId: 'family-b', endpoint: 'ws://family-b/acp', heldSessionId: 's-1', sessions: [entry({ sessionId: 's-1' })] },
+      ],
+      [profile('family-a'), profile('family-b')],
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.familyName)).toEqual(['family-a', 'family-b']);
+  });
+});
+
+describe('familyLifecycle (the dot of a family with two connections)', () => {
+  const slot = (patch: Partial<ConnectionState> = {}): ConnectionState => ({
+    ...emptyConnectionState(),
+    ...patch,
+  });
+
+  it('follows the first connection of the family that is up', () => {
+    const facts = familyLifecycle([
+      slot({ connection: { ...emptyConnectionState().connection, status: 'disconnected' } }),
+      slot({ connection: { ...emptyConnectionState().connection, status: 'connected' } }),
+    ]);
+
+    expect(facts.phase).toBe('connected');
+  });
+
+  it('lights the dot when any connection of the family runs a turn', () => {
+    const running = slot({
+      connection: { ...emptyConnectionState().connection, status: 'connected' },
+      docs: { 's-1': { ...emptySession(), status: 'running' } },
+    });
+
+    const facts = familyLifecycle([slot(), running]);
+
+    expect(facts.running).toBe(true);
+  });
+
+  it('has no dot without a connection', () => {
+    expect(familyLifecycle([]).phase).toBe('disconnected');
+    expect(familyLifecycle([]).running).toBe(false);
   });
 });
