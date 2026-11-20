@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { AgentProfile } from './profiles';
 import {
   EMPTY_NAV_LAYOUT,
   addFolder,
@@ -7,6 +8,7 @@ import {
   familyGlyph,
   forgetChat,
   loadNavLayout,
+  migrateNavLayout,
   navKey,
   parseNavLayout,
   placeChat,
@@ -54,9 +56,53 @@ function layoutWithSection(): NavLayout {
 }
 
 describe('navKey', () => {
-  it('keys a chat by endpoint and session id, so every device agrees', () => {
-    expect(navKey('wss://door/code', 'abc')).toBe('wss://door/code\nabc');
-    expect(navKey('wss://door/code', 'abc')).not.toBe(navKey('wss://door/creche', 'abc'));
+  it('keys a chat by namespace and session id, so every device agrees', () => {
+    expect(navKey('code', 'abc')).toBe('code\nabc');
+    expect(navKey('code', 'abc')).not.toBe(navKey('creche', 'abc'));
+  });
+});
+
+describe('migrateNavLayout', () => {
+  const profile = (id: string, name: string, slug: string, url: string): AgentProfile => ({
+    id,
+    name,
+    slug,
+    kind: 'websocket',
+    url,
+    workspace: { kind: 'none' },
+    mcpServerIds: [],
+  });
+
+  it('rewrites the endpoint-keyed keys to the chat id keys', () => {
+    const profiles = [profile('p1', 'Code', 'code', 'wss://door/code')];
+    const layout: NavLayout = {
+      ...EMPTY_NAV_LAYOUT,
+      placements: { 'wss://door/code\nabc': { kind: 'pinned' } },
+      titles: { 'wss://door/code\nabc': 'My chat' },
+    };
+
+    const migrated = migrateNavLayout(layout, profiles);
+
+    expect(migrated.placements).toEqual({ 'code\nabc': { kind: 'pinned' } });
+    expect(migrated.titles).toEqual({ 'code\nabc': 'My chat' });
+  });
+
+  it('keeps the keys that already name a namespace', () => {
+    const layout: NavLayout = {
+      ...EMPTY_NAV_LAYOUT,
+      placements: { 'code\nabc': { kind: 'pinned' } },
+    };
+
+    expect(migrateNavLayout(layout, [])).toEqual(layout);
+  });
+
+  it('drops the keys of a family that is gone', () => {
+    const layout: NavLayout = {
+      ...EMPTY_NAV_LAYOUT,
+      placements: { 'wss://door/gone\nabc': { kind: 'pinned' } },
+    };
+
+    expect(migrateNavLayout(layout, []).placements).toEqual({});
   });
 });
 
@@ -65,7 +111,11 @@ describe('persistence', () => {
     const storage = memoryStorage();
     const seen: NavLayout[] = [];
     const unsubscribe = subscribeNavLayout((layout) => seen.push(layout));
-    const layout = placeChat(layoutWithSection(), 'k', { kind: 'section', sectionId: 's1', folderId: 'f1' });
+    const layout = placeChat(layoutWithSection(), navKey('code', 'abc'), {
+      kind: 'section',
+      sectionId: 's1',
+      folderId: 'f1',
+    });
     expect(saveNavLayout(layout, storage)).toBe(true);
     unsubscribe();
     expect(seen).toEqual([layout]);
