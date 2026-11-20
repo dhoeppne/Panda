@@ -2,8 +2,9 @@
  * Sidebar navigation layout: the user's sections, folders, pins and local
  * titles over the one merged chat list. Sessions live with their agents;
  * only the PLACEMENT of a session is Panda's, so the layout is pure data
- * keyed by `navKey(endpoint, sessionId)` — the endpoint, not the per-browser
- * profile id, so the same chat has the same key on every device.
+ * keyed by `navKey(namespace, sessionId)` — the family's namespace and the
+ * session id, the same pair the chat route carries (ADR 0010), so the same
+ * chat has the same key on every device.
  *
  * Persisted per browser in localStorage (`panda.nav`), with the same
  * injected-storage and subscribe contract as profiles.ts. A synced store can
@@ -11,6 +12,8 @@
  */
 import { onRemoteChange, syncedStorage } from './settingsSync';
 import { randomUuid } from './uuid';
+import { chatKey } from './chatId';
+import { loadProfiles, profileEndpoint, SLUG_PATTERN, type AgentProfile } from './profiles';
 
 export type NavFolder = { id: string; name: string; collapsed: boolean };
 export type NavSection = { id: string; name: string; collapsed: boolean; folders: NavFolder[] };
@@ -37,9 +40,50 @@ export const EMPTY_NAV_LAYOUT: NavLayout = {
   recentsCollapsed: false,
 };
 
-/** One chat's layout key. A newline never occurs in an endpoint or an ACP session id. */
-export function navKey(endpoint: string, sessionId: string): string {
-  return `${endpoint}\n${sessionId}`;
+/**
+ * One chat's layout key (ADR 0010): the family's namespace and the session
+ * id, the same pair the chat route carries. A newline never occurs in
+ * either, so the separator keeps them apart.
+ */
+export function navKey(namespace: string, sessionId: string): string {
+  return chatKey({ namespace, sessionId });
+}
+
+/**
+ * Rewrites the layout from the endpoint-keyed keys to the chat-id keys
+ * (ADR 0010). The endpoint named the family; its slug is the namespace now.
+ * A key whose family is gone drops with its chat. A key that already names a
+ * namespace (a slug, or a 临时直连's connection id) stays.
+ */
+export function migrateNavLayout(layout: NavLayout, profiles: AgentProfile[]): NavLayout {
+  const byEndpoint = new Map<string, string>();
+  for (const profile of profiles) byEndpoint.set(profileEndpoint(profile), profile.slug);
+  const move = <T>(map: Record<string, T>): Record<string, T> => {
+    const next: Record<string, T> = {};
+    for (const [key, value] of Object.entries(map)) {
+      const at = key.indexOf('\n');
+      if (at === -1) continue;
+      const first = key.slice(0, at);
+      const sessionId = key.slice(at + 1);
+      // A namespace is a slug, or the id of a 临时直连. Either way the key is
+      // already the new form.
+      if (SLUG_PATTERN.test(first) || first.startsWith('direct:')) {
+        next[key] = value;
+        continue;
+      }
+      const slug = byEndpoint.get(first);
+      if (slug === undefined) continue; // the family is gone, and so is its chat
+      next[navKey(slug, sessionId)] = value;
+    }
+    const keys = Object.keys(next);
+    const unchanged = keys.length === Object.keys(map).length && keys.every((key) => key in map);
+    return unchanged ? map : next;
+  };
+  return {
+    ...layout,
+    placements: move(layout.placements),
+    titles: move(layout.titles),
+  };
 }
 
 export function newNavId(): string {
@@ -154,7 +198,20 @@ export function loadNavLayout(storage: NavStorage = defaultStorage()): NavLayout
     console.warn('[panda/nav] could not read the layout', err);
     return EMPTY_NAV_LAYOUT;
   }
-  return raw === null ? EMPTY_NAV_LAYOUT : parseNavLayout(raw);
+  if (raw === null) return EMPTY_NAV_LAYOUT;
+  const layout = parseNavLayout(raw);
+  // The keys moved from the endpoint to the chat id (ADR 0010). The rewrite
+  // happens once, on the read, and the result is written back so the next
+  // read finds the new keys.
+  const migrated = migrateNavLayout(layout, loadProfiles());
+  if (migrated.placements !== layout.placements || migrated.titles !== layout.titles) {
+    try {
+      storage.setItem(NAV_KEY, JSON.stringify(migrated));
+    } catch (err) {
+      console.warn('[panda/nav] could not persist the migrated layout', err);
+    }
+  }
+  return migrated;
 }
 
 /** Persists the layout and notifies subscribers. Returns false when storage
