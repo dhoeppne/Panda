@@ -30,6 +30,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Notify;
 
+mod server_auth;
+
 /// One live agent child. The `Child` itself is owned exclusively by the exit
 /// watcher task (wait + terminate cannot share it); the table keeps only the
 /// handles the commands need.
@@ -120,7 +122,12 @@ async fn stdio_spawn(
                 match stdout.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if event_tx.send(StdioEvent::Stdout { data: BASE64.encode(&buf[..n]) }).is_err() {
+                        if event_tx
+                            .send(StdioEvent::Stdout {
+                                data: BASE64.encode(&buf[..n]),
+                            })
+                            .is_err()
+                        {
                             break; // webview gone
                         }
                     }
@@ -138,7 +145,12 @@ async fn stdio_spawn(
                 match stderr.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if event_tx.send(StdioEvent::Stderr { data: BASE64.encode(&buf[..n]) }).is_err() {
+                        if event_tx
+                            .send(StdioEvent::Stderr {
+                                data: BASE64.encode(&buf[..n]),
+                            })
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -236,7 +248,10 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ProcTable::default())
-        .invoke_handler(tauri::generate_handler![stdio_spawn, stdio_write, stdio_kill])
+        .manage(server_auth::SocketTable::default())
+        .invoke_handler(tauri::generate_handler![stdio_spawn, stdio_write, stdio_kill,
+            server_auth::server_sign_in, server_auth::websocket_connect,
+            server_auth::websocket_write, server_auth::websocket_close])
         // Webview (re)load sweep (#7): a reload destroys the JS state that
         // owned these children — nobody will ever read their stdout again,
         // and without this they linger forever (a reconnect then races a
@@ -244,6 +259,8 @@ fn main() {
         // table — a no-op.
         .on_page_load(|webview, payload| {
             if let tauri::webview::PageLoadEvent::Started = payload.event() {
+                if webview.label() != "main" { return; }
+                server_auth::close_all(&webview.state::<server_auth::SocketTable>());
                 let swept = sweep_orphans(&webview.state::<ProcTable>());
                 if swept > 0 {
                     println!("[panda-desktop] page (re)load: sweeping {swept} orphaned agent process(es)");
@@ -254,6 +271,7 @@ fn main() {
         .expect("panda desktop shell failed to start")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                server_auth::close_all(&app.state::<server_auth::SocketTable>());
                 // #7: tao ends its event loop with std::process::exit —
                 // destructors and the async runtime never run, so
                 // kill_on_drop is dead code here. Terminating the agents at

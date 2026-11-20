@@ -7,6 +7,8 @@ import {
 } from '../acp/transport/StdioTransport';
 import { setStdioTransportFactory } from '../acp/transport/stdioHost';
 import { setExternalUrlOpener } from '../externalLinks';
+import { setWebSocketHost } from '../acp/transport/webSocketHost';
+import { NativeWebSocketTransport, type NativeWebSocketEvent } from '../acp/transport/NativeWebSocketTransport';
 
 /**
  * Desktop host boot (issue #125), loaded lazily by main.tsx when
@@ -108,6 +110,18 @@ function tauriStdioSpawn(): StdioSpawn {
 /** Registers the desktop host's stdio capability. Idempotent by effect. */
 export function bootDesktop(): void {
   setStdioTransportFactory(createStdioTransportFactory(tauriStdioSpawn()));
+  setWebSocketHost({
+    signIn: (url) => invoke('server_sign_in', { url }),
+    transport: (url) => new NativeWebSocketTransport(url, async (endpoint, receive) => {
+      const onEvent = new Channel<NativeWebSocketEvent>();
+      onEvent.onmessage = receive;
+      const id = await invoke<number>('websocket_connect', { url: endpoint, onEvent });
+      return {
+        write: (data) => invoke<void>('websocket_write', { id, data }),
+        close: () => invoke<void>('websocket_close', { id }),
+      };
+    }),
+  });
   setExternalUrlOpener((url) => {
     void openUrl(url).catch((error: unknown) => {
       console.warn(`[panda/desktop] could not open external URL ${url}`, error);
