@@ -34,6 +34,7 @@ import {
 } from './navSwipe';
 import { composerDraftKey, useComposerDrafts } from './composerDrafts';
 import { profileIdOfConnection, sameChat, type ChatId } from './chatId';
+import { beginChatRecovery, rememberChatSelection } from './chatRecovery';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
 import { familyCommandSource, sessionCommandSource, type CommandSource } from './commands';
@@ -203,6 +204,19 @@ function MainScreen() {
   // The route names a chat the foreground does not hold: the route asks for a
   // chat, and the app is opening it.
   const routeUnresolved = routeChat !== null && !sameChat(routeChat, foregroundChat);
+  const [failedRoute, setFailedRoute] = useState<ChatId | null>(null);
+  const [routeRetry, setRouteRetry] = useState(0);
+  const routeFailed = routeUnresolved && sameChat(routeChat, failedRoute);
+  const routeFamilyId = routeChat ? profiles.find((profile) => profile.slug === routeChat.namespace)?.id : undefined;
+  const routeNeedsAuth = usePanda((s) =>
+    routeFamilyId ? s.connections[routeFamilyId]?.connection.status === 'auth_required' : false,
+  );
+
+  useEffect(() => {
+    // Temporary direct connections cannot be reopened after restarting.
+    const savedFamily = profiles.some((profile) => profile.slug === foregroundChat?.namespace);
+    rememberChatSelection(route, savedFamily ? foregroundChat : null);
+  }, [route, foregroundChat, profiles]);
 
   // The new-chat view (navigation redesign): the route names it (#/new). The
   // chat is created on the first send, on the family the picker names.
@@ -228,22 +242,16 @@ function MainScreen() {
     if (route.kind !== 'chat') return;
     const id = { namespace: route.namespace, sessionId: route.sessionId };
     if (sameChat(id, foregroundChat)) return; // it is open already
-    let stale = false;
-    void live.openChatRoute(id).then((ok) => {
-      if (ok || stale) return;
-      // The chat cannot be opened: the route named a conversation this
-      // family does not have, or one it could not reach. The chat that is
-      // open (if any) takes the route back.
-      navigate(
-        foregroundChat
-          ? { kind: 'chat', namespace: foregroundChat.namespace, sessionId: foregroundChat.sessionId }
-          : { kind: 'new' },
-      );
-    });
-    return () => {
-      stale = true;
-    };
-  }, [route, foregroundChat, live]);
+    // The requested family's auth gate must finish before session/load.
+    if (routeNeedsAuth) {
+      if (routeFamilyId) live.foreground(routeFamilyId);
+      return;
+    }
+    setFailedRoute(null);
+    // A failed/offline load keeps its requested route. Retry opens that
+    // exact chat instead of falling back to, or creating, a different one.
+    return beginChatRecovery(id, live.openChatRoute, () => setFailedRoute(id));
+  }, [route, foregroundChat, live, routeRetry, routeNeedsAuth, routeFamilyId]);
   // The `/` menu (commands.ts): a new chat has no session yet, so it shows
   // the list the picked family sent at `initialize`.
   const newChatSlot = usePanda((s) => (newChatFamily ? s.connections[newChatFamily.id] : undefined));
@@ -316,9 +324,11 @@ function MainScreen() {
     ? t(settingsSectionMeta?.titleKey ?? 'settings.title')
     : showNewChat
       ? t('side.newChat')
-      : (loadingSession
-          ? sessionRowLabel(loadingSession, undefined)
-          : activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
+      : routeUnresolved
+        ? t(routeFailed ? 'session.openFailedTitle' : 'session.loading')
+        : (loadingSession
+            ? sessionRowLabel(loadingSession, undefined)
+            : activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
   const headerMeta = onSettings
     ? (settingsSectionMeta ? t(settingsSectionMeta.descKey) : null)
     : showNewChat
@@ -416,6 +426,12 @@ function MainScreen() {
               }
             />
           </div>
+        ) : routeUnresolved && !(view === 'auth-gate' && foregroundOwner === routeFamilyId) ? (
+          <SessionLoading
+            failed={routeFailed}
+            onRetry={() => setRouteRetry((attempt) => attempt + 1)}
+            onNewChat={() => navigate({ kind: 'new' })}
+          />
         ) : (
           <>
             {/* The plan dock belongs to the session in view: while a switch

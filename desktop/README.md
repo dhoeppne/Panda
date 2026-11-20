@@ -104,3 +104,21 @@ on manual dispatch and on `v*` tags: `Panda_<ver>_aarch64.dmg`,
 `Panda_<ver>_x64-setup.exe`, `Panda_<ver>_x64-portable.zip` (the bare
 `--no-bundle` exe). Tag builds attach everything to a GitHub Release.
 Artifacts are unsigned by decision — see ADR 0007.
+
+## Restart recovery
+
+Panda remembers the last successfully opened chat on this device. A launch
+without a route reopens that family and session through the existing
+`session/load` path. Explicit chat, settings, or new-chat links take
+precedence. Choosing New chat clears the remembered selection; visiting
+settings preserves it. Temporary direct connections are not restored.
+
+If the agent is offline, the requested chat stays selected with a Retry
+action. Retry opens that same chat; a missing family or deleted session
+never creates a replacement conversation. The previous chat's composer is
+hidden while the requested chat is opening or unavailable.
+
+The `panda.lastChat` storage key is device-local and is not part of settings
+sync. This restores selection, not offline transcripts or unsent drafts;
+history is still loaded from the agent. Desktop host capabilities finish
+initializing before startup restoration begins.

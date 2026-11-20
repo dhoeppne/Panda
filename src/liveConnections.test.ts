@@ -28,6 +28,7 @@ import {
   type SessionStorage,
 } from './liveConnections';
 import { extraConnectionId, profileIdOfConnection } from './chatId';
+import { rememberChatSelection, startupChatRoute } from './chatRecovery';
 import {
   connectionStorePort,
   emptyConnectionState,
@@ -1527,13 +1528,18 @@ describe('the chat a route names (ADR 0010)', () => {
 
   /** A stub family whose connect answers with a session list, and whose
    * session/load adopts the session it is asked for. */
-  function familyStubs(sessionId: string): StubbedClient[] {
+  function familyStubs(sessionId: string, options: { wait?: Promise<void>; authRequired?: boolean } = {}): StubbedClient[] {
     const stubs: StubbedClient[] = [];
     __setDefaultClientFactory((handlers) => {
       const stub: StubbedClient = {
         handlers,
         client: {
           connect: vi.fn(async () => {
+            if (options.wait) await options.wait;
+            if (options.authRequired) {
+              handlers.onAuthChallenge({ methods: [], message: 'Sign in to this family' });
+              return;
+            }
             handlers.onSessions([{ sessionId, cwd: '/agent-a', title: null, updatedAt: null }]);
             handlers.onConnected({ agentName: 'agent-a', protocolVersion: 1 });
           }),
@@ -1564,6 +1570,82 @@ describe('the chat a route names (ADR 0010)', () => {
     expect(stubs[0]!.client.connect).toHaveBeenCalled();
     expect(stubs[0]!.client.loadSession).toHaveBeenCalledWith('s-1', '/agent-a');
     expect(usePanda.getState().connections['agent-a']?.connection.sessionId).toBe('s-1');
+  });
+
+  it('reopens the saved chat on a fresh launch without creating a session', async () => {
+    stubLocalStorage();
+    saveProfiles([family()]);
+    const chat = { kind: 'chat' as const, namespace: 'agent-a', sessionId: 's-1' };
+    rememberChatSelection(chat, chat);
+    // Startup has no in-memory selection, only the profiles and saved route.
+    expect(usePanda.getState().activeSessionId).toBeNull();
+    const stubs = familyStubs('s-1');
+    const recovered = startupChatRoute('');
+    expect(recovered).toEqual(chat);
+
+    await expect(openChatRoute(recovered!)).resolves.toBe(true);
+
+    expect(stubs[0]!.client.loadSession).toHaveBeenCalledWith('s-1', '/agent-a');
+    expect(stubs[0]!.client.newSession).not.toHaveBeenCalled();
+    expect(usePanda.getState().activeSessionId).toBe('s-1');
+  });
+
+  it('keeps a saved but deleted session unavailable without creating a new one', async () => {
+    stubLocalStorage();
+    saveProfiles([family()]);
+    const deleted = { kind: 'chat' as const, namespace: 'agent-a', sessionId: 'deleted' };
+    rememberChatSelection(deleted, deleted);
+    const stubs = familyStubs('s-1');
+    const recovered = startupChatRoute('')!;
+
+    await expect(openChatRoute(recovered)).resolves.toBe(false);
+
+    expect(stubs[0]!.client.newSession).not.toHaveBeenCalled();
+    expect(stubs[0]!.client.loadSession).not.toHaveBeenCalled();
+    expect(startupChatRoute('')).toEqual(deleted);
+    expect(usePanda.getState().activeSessionId).toBeNull();
+  });
+
+  it('does not load or reselect an abandoned recovery after its connection succeeds', async () => {
+    stubLocalStorage();
+    saveProfiles([family()]);
+    let connected!: () => void;
+    const wait = new Promise<void>((done) => { connected = done; });
+    const stubs = familyStubs('s-1', { wait });
+    const controller = new AbortController();
+    const opening = openChatRoute({ namespace: 'agent-a', sessionId: 's-1' }, controller.signal);
+    await vi.waitFor(() => expect(stubs).toHaveLength(1));
+    controller.abort();
+    usePanda.getState().ensureConnection('another-family');
+    connected();
+
+    await expect(opening).resolves.toBe(false);
+
+    expect(stubs[0]!.client.loadSession).not.toHaveBeenCalled();
+    expect(usePanda.getState().activeConnectionId).toBe('another-family');
+  });
+
+  it('shows the requested family auth gate and loads its chat after authentication', async () => {
+    stubLocalStorage();
+    saveProfiles([profile('other'), family()]);
+    const stubs = familyStubs('s-1', { authRequired: true });
+    await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, family().workspace, {
+      profileId: 'agent-a', background: true,
+    });
+    usePanda.getState().ensureConnection('other');
+
+    await expect(openChatRoute({ namespace: 'agent-a', sessionId: 's-1' })).resolves.toBe(false);
+    expect(usePanda.getState().activeConnectionId).toBe('agent-a');
+    expect(usePanda.getState().connections['agent-a']?.connection.status).toBe('auth_required');
+    expect(stubs[0]!.client.connect).toHaveBeenCalledOnce();
+    expect(stubs[0]!.client.loadSession).not.toHaveBeenCalled();
+
+    // Authentication settles the existing connection instead of reinitializing it.
+    stubs[0]!.handlers.onSessions([{ sessionId: 's-1', cwd: '/agent-a', title: null, updatedAt: null }]);
+    stubs[0]!.handlers.onConnected({ agentName: 'agent-a', protocolVersion: 1 });
+    await expect(openChatRoute({ namespace: 'agent-a', sessionId: 's-1' })).resolves.toBe(true);
+    expect(stubs[0]!.client.connect).toHaveBeenCalledOnce();
+    expect(usePanda.getState().activeSessionId).toBe('s-1');
   });
 
   it('refuses a namespace no family carries', async () => {
