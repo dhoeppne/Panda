@@ -13,7 +13,6 @@ import {
   logoutLiveConnection,
   newLiveSession,
   openChatRoute,
-  openLiveSession,
   persistSessionsSnapshot,
   reconnectLiveConnection,
   seedProfileSlots,
@@ -74,7 +73,6 @@ export function useLiveSession() {
       foreground: foregroundConnection,
       authenticate: (methodId: string) => authenticateLiveConnection(methodId),
       logout: () => logoutLiveConnection(),
-      openSession: openLiveSession,
       openChatRoute,
       send: (content) => sendLive(content),
       resolvePermission: (toolCallId, kind) => resolveLivePermission(toolCallId, kind),
@@ -120,9 +118,9 @@ export interface LiveSessionFacade extends ForegroundSessionController {
   authenticate: (methodId: string) => void;
   /** v1 `logout` on the foreground connection (gated by auth.logout). */
   logout: () => void;
-  openSession: typeof openLiveSession;
   /** Opens the chat a route names (ADR 0010): the family connects, then the
-   * session is loaded on it. */
+   * session is loaded on it. The route is the one truth: every move to a
+   * chat is a route, and the route opens it. */
   openChatRoute: (id: ChatId) => Promise<boolean>;
   cancel: typeof cancelLiveTurn;
   /** Creates a session; the optional id names the target connection (the

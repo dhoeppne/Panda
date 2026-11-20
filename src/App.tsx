@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowLeft, Menu } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Sidebar } from './components/Sidebar';
@@ -18,7 +18,7 @@ import {
   usePanda,
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
-import { navigate, sameRoute, useHashRoute, wasWrittenByApp, forgetWrittenRoute, type AppRoute } from './routes';
+import { navigate, useHashRoute } from './routes';
 import {
   beginDrawerDrag,
   beginsDrawerSwipe,
@@ -218,39 +218,30 @@ function MainScreen() {
     activeConnectionId === null ? null : profileIdOfConnection(activeConnectionId) ?? activeConnectionId;
   const foregroundFamily = profiles.find((profile) => profile.id === foregroundOwner) ?? null;
 
-  // The route drives the foreground (ADR 0010). A route the app did not
-  // write — a pasted link, a link from another device — names a chat that is
-  // not open yet, and the app opens it.
+  // The route opens the chat it names (ADR 0010). It is the one truth: a
+  // link from another device, a pasted link, a click in the sidebar — each
+  // one names a chat, and the app opens it. The family connects, then the
+  // session is loaded on it.
   useEffect(() => {
     if (route.kind !== 'chat') return;
-    if (wasWrittenByApp(route)) {
-      forgetWrittenRoute();
-      return;
-    }
+    const id = { namespace: route.namespace, sessionId: route.sessionId };
+    if (sameChat(id, foregroundChat)) return; // it is open already
     let stale = false;
-    void live.openChatRoute({ namespace: route.namespace, sessionId: route.sessionId }).then((ok) => {
-      // A chat that cannot be opened leaves the route: the link named a
-      // conversation this family does not have (or could not reach).
+    void live.openChatRoute(id).then((ok) => {
       if (ok || stale) return;
-      navigate({ kind: 'new' });
+      // The chat cannot be opened: the route named a conversation this
+      // family does not have, or one it could not reach. The chat that is
+      // open (if any) takes the route back.
+      navigate(
+        foregroundChat
+          ? { kind: 'chat', namespace: foregroundChat.namespace, sessionId: foregroundChat.sessionId }
+          : { kind: 'new' },
+      );
     });
     return () => {
       stale = true;
     };
-  }, [route, live]);
-
-  // The foreground writes the route: a chat that opens, a chat that is
-  // deleted, a family that drops its session. The route wins while it names
-  // a chat that is still on its way — the app is opening it.
-  useLayoutEffect(() => {
-    if (route.kind === 'settings') return;
-    if (routeUnresolved) return;
-    const next: AppRoute = foregroundChat
-      ? { kind: 'chat', namespace: foregroundChat.namespace, sessionId: foregroundChat.sessionId }
-      : { kind: 'new' };
-    if (sameRoute(next, route)) return;
-    navigate(next);
-  }, [foregroundChat, route, routeUnresolved]);
+  }, [route, foregroundChat, live]);
   // The `/` menu (commands.ts): a new chat has no session yet, so it shows
   // the list the picked family sent at `initialize`.
   const newChatSlot = usePanda((s) => (newChatFamily ? s.connections[newChatFamily.id] : undefined));
@@ -282,7 +273,16 @@ function MainScreen() {
         notifyUser('error', t('newChat.startFailed', { name: newChatFamily.name }));
         return;
       }
-      // The route follows the new session: the writer effect names it.
+      // The route names the new chat (ADR 0010): the chat the family just
+      // made, with the session id the agent minted.
+      const state = usePanda.getState();
+      const owner = state.activeConnectionId
+        ? (profileIdOfConnection(state.activeConnectionId) ?? state.activeConnectionId)
+        : null;
+      const family = profiles.find((entry) => entry.id === owner);
+      if (state.activeSessionId && family) {
+        navigate({ kind: 'chat', namespace: family.slug, sessionId: state.activeSessionId });
+      }
       await controller.send(content);
     })();
   };

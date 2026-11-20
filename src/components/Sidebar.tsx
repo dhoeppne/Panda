@@ -751,11 +751,9 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
   const isRenaming = renaming === `chat:${row.key}`;
 
   const open = () => {
-    // The route names the chat (ADR 0010) and the link opens it. The route
-    // is written by the app here, so the route effect does not open it a
-    // second time.
+    // The route names the chat (ADR 0010); the route opens it. The route
+    // is the one truth, so the click only names the chat.
     navigate({ kind: 'chat', namespace: row.namespace, sessionId: row.sessionId });
-    if (!facts.foreground) live.openSession(row.connectionId, row.sessionId, row.cwd);
     onOpened();
   };
 

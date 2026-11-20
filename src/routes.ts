@@ -78,23 +78,6 @@ export function sameRoute(a: AppRoute, b: AppRoute): boolean {
 }
 
 /**
- * The last route the app itself wrote. A route that arrives from elsewhere
- * (a pasted link, the back button of another site) is not this one, and the
- * app opens the chat it names. The marker is cleared once it is consumed.
- */
-let written: AppRoute | null = null;
-
-/** True when the route is the one the app last wrote itself. */
-export function wasWrittenByApp(route: AppRoute): boolean {
-  return written !== null && sameRoute(written, route);
-}
-
-/** Forgets the written marker, so the next route reads as an outside one. */
-export function forgetWrittenRoute(): void {
-  written = null;
-}
-
-/**
  * Moves to a route.
  *
  * `replace` is the default: the chats do not grow the browser's history
@@ -103,8 +86,7 @@ export function forgetWrittenRoute(): void {
  */
 export function navigate(route: AppRoute, opts?: { replace?: boolean }): void {
   const hash = routeHash(route);
-  if (window.location.hash === hash) return; // nothing changes, and nothing is written
-  written = route;
+  if (window.location.hash === hash) return; // nothing changes
   if (opts?.replace === false) {
     window.location.hash = hash;
     return;
