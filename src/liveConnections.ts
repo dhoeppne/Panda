@@ -15,6 +15,7 @@ import type {
 } from './protocol/types';
 import { connectionStorePort, usePanda, type ConnectionStorePort, type SessionEntry, type SessionSwitchSnapshot } from './store';
 import { connectionLifecycle } from './projector/connectionLifecycle';
+import { connectionOfNamespace, extraConnectionId, profileIdOfConnection, type ChatId } from './chatId';
 import {
   canonicalArgs,
   liveTargetEndpoint,
@@ -62,31 +63,6 @@ export function isDirectConnectionId(connectionId: string): boolean {
   return connectionId.startsWith(DIRECT_CONNECTION_PREFIX);
 }
 
-/**
- * The separator between a profile id and the number of an extra connection
- * of that profile. A profile id is a UUID, so '#' never appears in one.
- */
-const EXTRA_CONNECTION_SEPARATOR = '#';
-
-/**
- * The id of the Nth extra connection of a family (N counts from 1). A family
- * holds more than one connection when a second live session needs its own
- * link: one connection serves one live session (ADR 0002), so a running
- * session keeps its link and its turn while the next session gets another.
- */
-export function extraConnectionId(profileId: string, n: number): string {
-  return `${profileId}${EXTRA_CONNECTION_SEPARATOR}${n}`;
-}
-
-/**
- * The profile id that owns a connection id: the id itself for a profile
- * connection, the part before '#' for an extra connection of a profile. Null
- * for a 临时直连, which owns no profile.
- */
-export function profileIdOfConnection(connectionId: string): string | null {
-  const at = connectionId.indexOf(EXTRA_CONNECTION_SEPARATOR);
-  return at === -1 ? null : connectionId.slice(0, at);
-}
 
 export function newDirectConnectionId(): string {
   return DIRECT_CONNECTION_PREFIX + randomUuid();

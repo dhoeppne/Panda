@@ -9,15 +9,14 @@ import {
   connectLiveConnection,
   connectProfilesInBackground,
   deleteLiveSession,
-  extraConnectionId,
   disconnectLiveConnection,
   foregroundConnection,
   lastConnectionDefaults,
   newDirectConnectionId,
   newLiveSession,
+  openChatRoute,
   openLiveSession,
   persistSessionsSnapshot,
-  profileIdOfConnection,
   reconcileProfileSlots,
   reconnectLiveConnection,
   removeLiveConnection,
@@ -28,6 +27,7 @@ import {
   testLiveTarget,
   type SessionStorage,
 } from './liveConnections';
+import { extraConnectionId, profileIdOfConnection } from './chatId';
 import {
   connectionStorePort,
   emptyConnectionState,
@@ -64,6 +64,7 @@ class MemoryStorage implements SessionStorage {
 const profile = (id: string, url = `ws://${id}/acp`, workspace: Workspace = { kind: 'local-directory', path: `/${id}` }): AgentProfile => ({
   id,
   name: id,
+  slug: id,
   kind: 'websocket',
   url,
   workspace,
@@ -1127,6 +1128,7 @@ describe('stdio targets (#121)', () => {
     const p: AgentProfile = {
       id: 's1',
       name: 'S',
+      slug: 's1',
       kind: 'stdio',
       command: ' node ',
       args: ' x  y ',
@@ -1160,6 +1162,7 @@ describe('stdio targets (#121)', () => {
     const p: AgentProfile = {
       id: 's2',
       name: 'S2',
+      slug: 's2',
       kind: 'stdio',
       command: 'node',
       args: '',
@@ -1497,5 +1500,85 @@ describe('a second live session of one family', () => {
     expect(profileIdOfConnection('agent-a')).toBeNull();
     expect(profileIdOfConnection(extraConnectionId('agent-a', 3))).toBe('agent-a');
     expect(profileIdOfConnection('direct:abc')).toBeNull();
+  });
+});
+
+describe('the chat a route names (ADR 0010)', () => {
+  /** Node has no localStorage: the profile list needs a stubbed one. */
+  function stubLocalStorage(): Map<string, string> {
+    const entries = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => entries.set(key, value),
+      removeItem: (key: string) => entries.delete(key),
+    });
+    return entries;
+  }
+
+  const family = (): AgentProfile => ({
+    id: 'agent-a',
+    name: 'Agent A',
+    slug: 'agent-a',
+    kind: 'websocket',
+    url: 'ws://agent-a/acp',
+    workspace: { kind: 'local-directory', path: '/agent-a' },
+    mcpServerIds: [],
+  });
+
+  /** A stub family whose connect answers with a session list, and whose
+   * session/load adopts the session it is asked for. */
+  function familyStubs(sessionId: string): StubbedClient[] {
+    const stubs: StubbedClient[] = [];
+    __setDefaultClientFactory((handlers) => {
+      const stub: StubbedClient = {
+        handlers,
+        client: {
+          connect: vi.fn(async () => {
+            handlers.onSessions([{ sessionId, cwd: '/agent-a', title: null, updatedAt: null }]);
+            handlers.onConnected({ agentName: 'agent-a', protocolVersion: 1 });
+          }),
+          disconnect: vi.fn(() => handlers.onDisconnected(null)),
+          newSession: vi.fn(async () => {}),
+          loadSession: vi.fn(async (id: string, cwd: string) => {
+            handlers.onSessionId(id, cwd);
+          }),
+          deleteSession: vi.fn(async () => {}),
+          send: vi.fn(async () => {}),
+          resolvePermission: vi.fn(),
+          cancel: vi.fn(),
+        } as unknown as LiveAcpClient,
+      };
+      stubs.push(stub);
+      return stub.client;
+    });
+    return stubs;
+  }
+
+  it('connects the family and loads the session the route names', async () => {
+    stubLocalStorage();
+    saveProfiles([family()]);
+    const stubs = familyStubs('s-1');
+
+    await expect(openChatRoute({ namespace: 'agent-a', sessionId: 's-1' })).resolves.toBe(true);
+
+    expect(stubs[0]!.client.connect).toHaveBeenCalled();
+    expect(stubs[0]!.client.loadSession).toHaveBeenCalledWith('s-1', '/agent-a');
+    expect(usePanda.getState().connections['agent-a']?.connection.sessionId).toBe('s-1');
+  });
+
+  it('refuses a namespace no family carries', async () => {
+    stubLocalStorage();
+    saveProfiles([family()]);
+    familyStubs('s-1');
+
+    await expect(openChatRoute({ namespace: 'ghost', sessionId: 's-1' })).resolves.toBe(false);
+  });
+
+  it('refuses a session the family does not know', async () => {
+    stubLocalStorage();
+    saveProfiles([family()]);
+    familyStubs('s-1');
+
+    await expect(openChatRoute({ namespace: 'agent-a', sessionId: 's-ghost' })).resolves.toBe(false);
   });
 });

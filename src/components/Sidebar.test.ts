@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { emptySession } from '../protocol/reducer';
 import type { SessionDocument } from '../protocol/types';
 import { emptyConnectionState, type ConnectionState, type SessionEntry } from '../store';
-import { chatRows, familyLifecycle, firstUserMessageText, sessionRowLabel, sessionRowMeta } from './Sidebar';
+import { chatLink, chatRows, familyLifecycle, firstUserMessageText, sessionRowLabel, sessionRowMeta } from './Sidebar';
 import type { AgentProfile } from '../profiles';
 
 /** A document whose turns carry the given user-message content parts. */
@@ -77,6 +77,7 @@ describe('chatRows (the merged list of a family with two connections)', () => {
   const profile = (id: string): AgentProfile => ({
     id,
     name: id,
+    slug: id,
     kind: 'websocket',
     url: `ws://${id}/acp`,
     workspace: { kind: 'none' },
@@ -162,5 +163,12 @@ describe('familyLifecycle (the dot of a family with two connections)', () => {
   it('has no dot without a connection', () => {
     expect(familyLifecycle([]).phase).toBe('disconnected');
     expect(familyLifecycle([]).running).toBe(false);
+  });
+});
+
+describe('chatLink (the address of a chat)', () => {
+  it('is the app address and the chat route', () => {
+    const link = chatLink({ namespace: 'principal', sessionId: 'abc' });
+    expect(link).toContain('#/chat/principal/abc');
   });
 });

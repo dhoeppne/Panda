@@ -7,6 +7,7 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { StatusDot } from '@astryxdesign/core/StatusDot';
 import {
   ChevronDown,
+  Link2,
   ChevronRight,
   Folder,
   FolderOpen,
@@ -26,22 +27,23 @@ import pandaBadge from '../assets/brand/panda-badge.png';
 import { usePanda, type ConnectionState, type SessionEntry } from '../store';
 import type { SessionDocument } from '../protocol/types';
 import { connectionLifecycle, isLinkUp, type ConnectionPhase } from '../projector/connectionLifecycle';
-import { profileIdOfConnection, reconcileProfileSlots } from '../liveConnections';
+import { reconcileProfileSlots } from '../liveConnections';
+import { chatKey, namespaceOfConnection, profileIdOfConnection } from '../chatId';
 import { effectiveCapability, PANDA_HOST_CAPABILITIES } from '../capabilities';
 import { useI18n } from '../i18n/context';
 import { formatRelativeTime } from '../relativeTime';
 import type { AgentProfile } from '../profiles';
-import { navigate, useHashRoute } from '../routes';
+import { navigate, routeHash, useHashRoute } from '../routes';
+import { copyText } from '../diagnostics';
 import { notifyUser } from '../userNotice';
 import { workspaceLabel } from '../workspace';
-import { useNewChat, useProfiles } from '../newChat';
+import { useProfiles } from '../newChat';
 import {
   addFolder,
   addSection,
   buildNavTree,
   forgetChat,
   loadNavLayout,
-  navKey,
   newNavId,
   placeChat,
   removeFolder,
@@ -64,7 +66,7 @@ import { FamilyBadge } from './FamilyPicker';
 import './Sidebar.css';
 
 /** One chat of the merged list, with what the row needs to render. */
-type ChatRow = NavRow & { entry: SessionEntry; familyName: string; holds: boolean };
+type ChatRow = NavRow & { entry: SessionEntry; familyName: string; holds: boolean; namespace: string };
 
 /** The persisted layout, kept current with storage. Writes that storage
  * rejects tell the user; the in-memory view still moves. */
@@ -119,8 +121,11 @@ export function chatRows(
     if (!endpoint) continue;
     const owner = profileIdOfConnection(connectionId) ?? connectionId;
     const familyName = profiles.find((profile) => profile.id === owner)?.name ?? endpoint;
+    // The namespace of the family: the slug of its profile, or the id of a
+    // 临时直连. It is the name of the chat in a route (ADR 0010).
+    const namespace = namespaceOfConnection(connectionId, profiles);
     for (const entry of sessions) {
-      const key = navKey(endpoint, entry.sessionId);
+      const key = chatKey({ namespace, sessionId: entry.sessionId });
       const known = rows.get(key);
       // The connection that holds the session wins over a sibling that only
       // lists it: the click must foreground the link that owns the session.
@@ -133,6 +138,7 @@ export function chatRows(
         updatedAt: entry.updatedAt,
         entry,
         familyName,
+        namespace,
         holds: heldSessionId === entry.sessionId,
       });
     }
@@ -198,9 +204,9 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
   onSelectSettingsSection(id: SettingsSectionId): void;
 }) {
   const { t } = useI18n();
-  const onSettings = useHashRoute() === 'settings';
+  const onSettings = useHashRoute().kind === 'settings';
   const exitSettings = () => {
-    if (onSettings) navigate('main');
+    if (onSettings) navigate({ kind: 'new' });
   };
   const profiles = useProfiles();
   const familyNames = useMemo(() => profiles.map((profile) => profile.name), [profiles]);
@@ -217,7 +223,7 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<{ kind: 'section' } | { kind: 'folder'; sectionId: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const newChatOpen = useNewChat((s) => s.open);
+  const newChatOpen = useHashRoute().kind === 'new';
 
   const closeNav = () => {
     exitSettings();
@@ -225,7 +231,8 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
   };
 
   const startNewChat = () => {
-    useNewChat.getState().start();
+    // The new-chat view is a route now (ADR 0010): #/new.
+    navigate({ kind: 'new' });
     closeNav();
   };
 
@@ -458,7 +465,7 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
               className="nav-family"
               onClick={() => {
                 onSelectSettingsSection('agents');
-                navigate('settings');
+                navigate({ kind: 'settings' });
                 onMobileClose();
               }}
             >
@@ -484,7 +491,7 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
           label={onSettings ? t('side.backToSession') : t('side.settings')}
           tooltip={onSettings ? t('side.backToSessionTooltip') : t('side.settingsTooltip')}
           clickAction={() => {
-            navigate(onSettings ? 'main' : 'settings');
+            navigate(onSettings ? { kind: 'new' } : { kind: 'settings' });
             onMobileClose();
           }}
         />
@@ -709,6 +716,14 @@ function rowFacts(row: ChatRow, layout: NavLayout): (s: ReturnType<typeof usePan
   };
 }
 
+/** The link to a chat: the app's address and the chat's route (ADR 0010). */
+export function chatLink(row: { namespace: string; sessionId: string }, base?: string): string {
+  const hash = routeHash({ kind: 'chat', namespace: row.namespace, sessionId: row.sessionId });
+  const address =
+    base ?? (typeof window === 'undefined' ? '' : `${window.location.origin}${window.location.pathname}`);
+  return `${address}${hash}`;
+}
+
 const DISABLED_LABELS = {
   busy: 'side.disabled.busy',
   offline: 'side.disabled.offline',
@@ -736,7 +751,10 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
   const isRenaming = renaming === `chat:${row.key}`;
 
   const open = () => {
-    useNewChat.getState().close();
+    // The route names the chat (ADR 0010) and the link opens it. The route
+    // is written by the app here, so the route effect does not open it a
+    // second time.
+    navigate({ kind: 'chat', namespace: row.namespace, sessionId: row.sessionId });
     if (!facts.foreground) live.openSession(row.connectionId, row.sessionId, row.cwd);
     onOpened();
   };
@@ -806,6 +824,17 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
                 <MenuItem icon={<Pencil size={14} />} onSelect={() => { close(); setRenaming(`chat:${row.key}`); }}>
                   {t('side.rename')}
                 </MenuItem>
+                <MenuItem
+                  icon={<Link2 size={14} />}
+                  onSelect={() => {
+                    close();
+                    void copyText(chatLink(row)).then((ok) => {
+                      notifyUser(ok ? 'info' : 'error', t(ok ? 'side.linkCopied' : 'side.linkCopyFailed'));
+                    });
+                  }}
+                >
+                  {t('side.copyLink')}
+                </MenuItem>
                 <hr className="nav-menu-sep" />
                 <div className="nav-menu-head">{t('side.moveTo')}</div>
                 <MenuItem indent={1} checked={placement === null} onSelect={() => { close(); move(null); }}>
@@ -849,6 +878,9 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
                           onAction: () => {
                             live.deleteSession(row.connectionId, row.sessionId);
                             commit(forgetChat(layout, row.key));
+                            // The route leaves the chat it named (ADR 0010):
+                            // the session is on its way out.
+                            navigate({ kind: 'new' });
                             deleteAlert.hide();
                           },
                         });
@@ -1014,7 +1046,6 @@ function FamilyStatus({ profile, live, onActivated }: {
   const up = isLinkUp(facts.phase);
   const act = () => {
     if (up || facts.phase === 'connecting') return;
-    useNewChat.getState().close();
     if (facts.phase === 'error') live.reconnectForeground({ connectionId: profile.id });
     else if (facts.phase === 'auth-required') live.foreground(profile.id);
     else live.connectProfile(profile);
