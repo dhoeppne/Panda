@@ -8,6 +8,7 @@ follow the releases published from this repository.
 
 ### Added
 
+- **A chat has an address** — the hash names what you look at: `#/chat/<family slug>/<session id>`, `#/new` for a chat that does not exist yet, `#/settings` for the settings. The session id in the route is the agent's own, so a link to a chat opens the same conversation on any device — and a reload lands you back in the chat you were reading instead of the new-chat view. The sidebar's ⋯ menu has **Copy link**. Every family carries a **slug** (Settings → Agent profiles): the name it has in a chat link, never changed by a rename, so the links keep working. Switching chats does not grow the browser history: the back button leaves Panda.
 - **Settings sync across devices** — an optional settings store
   (`server/settings-server.mjs`, the `settings` service in `compose.yaml`)
   keeps agent profiles, the sidebar layout, MCP servers, theme, font sizes,

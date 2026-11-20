@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowLeft, Menu } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Sidebar } from './components/Sidebar';
@@ -18,7 +18,7 @@ import {
   usePanda,
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
-import { navigate, useHashRoute } from './routes';
+import { navigate, sameRoute, useHashRoute, wasWrittenByApp, forgetWrittenRoute, type AppRoute } from './routes';
 import {
   beginDrawerDrag,
   beginsDrawerSwipe,
@@ -31,7 +31,7 @@ import {
   type SwipeStart,
 } from './navSwipe';
 import { composerDraftKey, useComposerDrafts } from './composerDrafts';
-import { profileIdOfConnection } from './liveConnections';
+import { profileIdOfConnection, sameChat, type ChatId } from './chatId';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
 import { familyCommandSource, sessionCommandSource, type CommandSource } from './commands';
@@ -58,7 +58,7 @@ export default function App() {
 
 function MainScreen() {
   const route = useHashRoute();
-  const onSettings = route === 'settings';
+  const onSettings = route.kind === 'settings';
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   // The drawer's edge-swipe gesture (navSwipe.ts). The drag lives in a ref:
   // pointermove writes the drawer's geometry to CSS custom properties on the
@@ -186,13 +186,30 @@ function MainScreen() {
   // an anchor-keyed key would collapse every offline view onto one bucket.
   const foregroundSessionKey = composerDraftKey(activeConnectionId ?? 'none', activeSessionId);
 
-  // The new-chat view (navigation redesign): open on New chat, and whenever
-  // no session is foreground while a family exists. The chat is created on
-  // the first send, on the family the picker names.
   const profiles = useProfiles();
-  const newChatOpen = useNewChat((s) => s.open);
+
+  // The chat the route names, and the chat the foreground holds (ADR 0010).
+  // The two are the same id: the route's session id is the agent's own.
+  const routeChat: ChatId | null =
+    route.kind === 'chat' ? { namespace: route.namespace, sessionId: route.sessionId } : null;
+  const foregroundChat: ChatId | null = useMemo(() => {
+    if (activeConnectionId === null || activeSessionId === null) return null;
+    const owner = profileIdOfConnection(activeConnectionId) ?? activeConnectionId;
+    const profile = profiles.find((entry) => entry.id === owner);
+    return { namespace: profile ? profile.slug : activeConnectionId, sessionId: activeSessionId };
+  }, [activeConnectionId, activeSessionId, profiles]);
+  // The route names a chat the foreground does not hold: the route asks for a
+  // chat, and the app is opening it.
+  const routeUnresolved = routeChat !== null && !sameChat(routeChat, foregroundChat);
+
+  // The new-chat view (navigation redesign): the route names it (#/new). The
+  // chat is created on the first send, on the family the picker names.
+  const newChatOpen = route.kind === 'new';
   const newChatFamily = resolveNewChatFamily(useNewChat((s) => s.familyId), profiles);
-  const showNewChat = !onSettings && newChatFamily !== null && (newChatOpen || view === 'onboarding');
+  // A route that names a chat owns the screen while the app opens it (ADR
+  // 0010): the new-chat view must not flash over the chat that is coming.
+  const showNewChat =
+    !onSettings && newChatFamily !== null && (newChatOpen || (view === 'onboarding' && !routeUnresolved));
   const [starting, setStarting] = useState(false);
   const newChatDraftKey = composerDraftKey('new-chat', null);
   // An extra connection of a family carries the family's id behind a '#', so
@@ -200,6 +217,40 @@ function MainScreen() {
   const foregroundOwner =
     activeConnectionId === null ? null : profileIdOfConnection(activeConnectionId) ?? activeConnectionId;
   const foregroundFamily = profiles.find((profile) => profile.id === foregroundOwner) ?? null;
+
+  // The route drives the foreground (ADR 0010). A route the app did not
+  // write — a pasted link, a link from another device — names a chat that is
+  // not open yet, and the app opens it.
+  useEffect(() => {
+    if (route.kind !== 'chat') return;
+    if (wasWrittenByApp(route)) {
+      forgetWrittenRoute();
+      return;
+    }
+    let stale = false;
+    void live.openChatRoute({ namespace: route.namespace, sessionId: route.sessionId }).then((ok) => {
+      // A chat that cannot be opened leaves the route: the link named a
+      // conversation this family does not have (or could not reach).
+      if (ok || stale) return;
+      navigate({ kind: 'new' });
+    });
+    return () => {
+      stale = true;
+    };
+  }, [route, live]);
+
+  // The foreground writes the route: a chat that opens, a chat that is
+  // deleted, a family that drops its session. The route wins while it names
+  // a chat that is still on its way — the app is opening it.
+  useLayoutEffect(() => {
+    if (route.kind === 'settings') return;
+    if (routeUnresolved) return;
+    const next: AppRoute = foregroundChat
+      ? { kind: 'chat', namespace: foregroundChat.namespace, sessionId: foregroundChat.sessionId }
+      : { kind: 'new' };
+    if (sameRoute(next, route)) return;
+    navigate(next);
+  }, [foregroundChat, route, routeUnresolved]);
   // The `/` menu (commands.ts): a new chat has no session yet, so it shows
   // the list the picked family sent at `initialize`.
   const newChatSlot = usePanda((s) => (newChatFamily ? s.connections[newChatFamily.id] : undefined));
@@ -231,7 +282,7 @@ function MainScreen() {
         notifyUser('error', t('newChat.startFailed', { name: newChatFamily.name }));
         return;
       }
-      useNewChat.getState().close();
+      // The route follows the new session: the writer effect names it.
       await controller.send(content);
     })();
   };
@@ -306,7 +357,13 @@ function MainScreen() {
                 icon={<ArrowLeft size={16} />}
                 label={t('app.back')}
                 tooltip={t('app.backTooltip')}
-                clickAction={() => navigate('main')}
+                clickAction={() =>
+                  navigate(
+                    foregroundChat
+                      ? { kind: 'chat', namespace: foregroundChat.namespace, sessionId: foregroundChat.sessionId }
+                      : { kind: 'new' },
+                  )
+                }
               />
             )}
             <span className="truncate app-header-title">{headerTitle}</span>
@@ -365,7 +422,7 @@ function MainScreen() {
                 onResolveElicitation={controller.resolveElicitation}
                 onOpenElicitationUrl={controller.openElicitationUrl}
               />
-            ) : view === 'onboarding' ? (
+            ) : view === 'onboarding' && !routeUnresolved ? (
               // First-run onboarding (#200): no foreground session document
               // to show → the two ways in (connect your own agent / existing
               // agents). A connection still opening its first
