@@ -46,7 +46,7 @@ CMD ["node", "settings-server.mjs"]
 
 FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
-RUN apk add --no-cache nginx=1.30.6-r0 \
+RUN apk add --no-cache 'nginx=~1.30.6' \
     && mkdir -p /run/nginx /var/cache/nginx /var/lib/nginx/tmp /var/log/nginx \
     && chown -R 101:101 /run/nginx /var/cache/nginx /var/lib/nginx /var/log/nginx
 
