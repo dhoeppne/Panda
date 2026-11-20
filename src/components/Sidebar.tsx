@@ -23,10 +23,10 @@ import {
   X,
 } from 'lucide-react';
 import pandaBadge from '../assets/brand/panda-badge.png';
-import { usePanda, type SessionEntry } from '../store';
+import { usePanda, type ConnectionState, type SessionEntry } from '../store';
 import type { SessionDocument } from '../protocol/types';
 import { connectionLifecycle, isLinkUp, type ConnectionPhase } from '../projector/connectionLifecycle';
-import { reconcileProfileSlots } from '../liveConnections';
+import { profileIdOfConnection, reconcileProfileSlots } from '../liveConnections';
 import { effectiveCapability, PANDA_HOST_CAPABILITIES } from '../capabilities';
 import { useI18n } from '../i18n/context';
 import { formatRelativeTime } from '../relativeTime';
@@ -64,7 +64,7 @@ import { FamilyBadge } from './FamilyPicker';
 import './Sidebar.css';
 
 /** One chat of the merged list, with what the row needs to render. */
-type ChatRow = NavRow & { entry: SessionEntry; familyName: string };
+type ChatRow = NavRow & { entry: SessionEntry; familyName: string; holds: boolean };
 
 /** The persisted layout, kept current with storage. Writes that storage
  * rejects tell the user; the in-memory view still moves. */
@@ -83,38 +83,100 @@ function useNavLayout(): [NavLayout, (next: NavLayout) => void] {
 }
 
 /**
+ * The family's dot: the phase of the first connection of the family that is
+ * up, and whether any connection of the family runs a turn. A family may
+ * hold more than one connection (ADR 0009), so the dot looks at all of them.
+ */
+export function familyLifecycle(slots: ConnectionState[]): {
+  phase: ConnectionPhase;
+  running: boolean;
+  error: string | null;
+} {
+  const lifecycles = slots.map((slot) => connectionLifecycle(slot));
+  const chosen = lifecycles.find((lifecycle) => isLinkUp(lifecycle.phase)) ?? lifecycles[0];
+  return {
+    phase: chosen?.phase ?? ('disconnected' as ConnectionPhase),
+    running: lifecycles.some((lifecycle) => lifecycle.running),
+    error: chosen?.error ?? null,
+  };
+}
+
+/**
  * The merged chat list: every session of every family connection, keyed by
- * endpoint + session id. The selector returns slot ids, endpoints and the
- * session-list refs only, so streaming document updates do not re-render
- * the whole list (useShallow compares element by element).
+ * endpoint + session id.
+ *
+ * Two connections of one family share the endpoint and therefore the
+ * session list, so the same chat arrives twice. One row per chat: the
+ * connection that holds the session wins, because that is the link the
+ * click must foreground.
+ */
+export function chatRows(
+  connections: ChatRowSource[],
+  profiles: AgentProfile[],
+): ChatRow[] {
+  const rows = new Map<string, ChatRow>();
+  for (const { connectionId, endpoint, heldSessionId, sessions } of connections) {
+    if (!endpoint) continue;
+    const owner = profileIdOfConnection(connectionId) ?? connectionId;
+    const familyName = profiles.find((profile) => profile.id === owner)?.name ?? endpoint;
+    for (const entry of sessions) {
+      const key = navKey(endpoint, entry.sessionId);
+      const known = rows.get(key);
+      // The connection that holds the session wins over a sibling that only
+      // lists it: the click must foreground the link that owns the session.
+      if (known && (known.holds || heldSessionId !== entry.sessionId)) continue;
+      rows.set(key, {
+        key,
+        connectionId,
+        sessionId: entry.sessionId,
+        cwd: entry.cwd,
+        updatedAt: entry.updatedAt,
+        entry,
+        familyName,
+        holds: heldSessionId === entry.sessionId,
+      });
+    }
+  }
+  return [...rows.values()];
+}
+
+/** What one connection contributes to the merged list. */
+export type ChatRowSource = {
+  connectionId: string;
+  endpoint: string | null;
+  /** The session the connection holds, or null. */
+  heldSessionId: string | null;
+  sessions: SessionEntry[];
+};
+
+/**
+ * The merged chat list of the sidebar. The selector returns slot ids,
+ * endpoints, the settled session id and the session-list refs only, so
+ * streaming document updates do not re-render the whole list (useShallow
+ * compares element by element).
  */
 function useChatRows(profiles: AgentProfile[]): ChatRow[] {
   const flat = usePanda(
     useShallow((s) =>
-      Object.entries(s.connections).flatMap(([id, slot]) => [id, slot.connection.url, slot.sessions] as const),
+      Object.entries(s.connections).flatMap(([id, slot]) => [
+        id,
+        slot.connection.url,
+        slot.connection.sessionId,
+        slot.sessions,
+      ] as const),
     ),
   );
   return useMemo(() => {
-    const rows: ChatRow[] = [];
-    for (let index = 0; index < flat.length; index += 3) {
-      const connectionId = flat[index] as string;
-      const endpoint = flat[index + 1] as string | null;
-      const sessions = flat[index + 2] as SessionEntry[];
-      if (!endpoint) continue;
-      const familyName = profiles.find((profile) => profile.id === connectionId)?.name ?? endpoint;
-      for (const entry of sessions) {
-        rows.push({
-          key: navKey(endpoint, entry.sessionId),
-          connectionId,
-          sessionId: entry.sessionId,
-          cwd: entry.cwd,
-          updatedAt: entry.updatedAt,
-          entry,
-          familyName,
-        });
-      }
+    const sources: ChatRowSource[] = [];
+    for (let index = 0; index < flat.length; index += 4) {
+      sources.push({
+        connectionId: flat[index] as string,
+        endpoint: flat[index + 1] as string | null,
+        heldSessionId: flat[index + 2] as string | null,
+        sessions: flat[index + 3] as SessionEntry[],
+      });
     }
-    return rows;
+    return chatRows(sources, profiles);
   }, [flat, profiles]);
 }
 
@@ -940,10 +1002,13 @@ function FamilyStatus({ profile, live, onActivated }: {
   const { t } = useI18n();
   const facts = usePanda(
     useShallow((s) => {
-      const slot = s.connections[profile.id];
-      if (!slot) return { phase: 'disconnected' as ConnectionPhase, running: false, error: null as string | null };
-      const lifecycle = connectionLifecycle(slot);
-      return { phase: lifecycle.phase, running: lifecycle.running, error: lifecycle.error };
+      // A family may hold more than one connection. The dot follows the
+      // family's own connection, and any connection of the family that runs a
+      // turn lights it.
+      const slots = Object.entries(s.connections)
+        .filter(([id]) => id === profile.id || profileIdOfConnection(id) === profile.id)
+        .map(([, slot]) => slot);
+      return familyLifecycle(slots);
     }),
   );
   const up = isLinkUp(facts.phase);
