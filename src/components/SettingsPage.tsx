@@ -12,6 +12,8 @@ import {
   newProfileId,
   profileEndpoint,
   saveProfiles,
+  slugify,
+  SLUG_PATTERN,
   subscribeProfiles,
   type AgentProfile,
 } from '../profiles';
@@ -396,8 +398,8 @@ function AgentsSection({ profiles }: { profiles: AgentProfile[] }) {
               clickAction={() => {
                 // Deep link (#221): back to the session view, in a new
                 // chat with the fresh profile picked as its family.
-                navigate('main');
-                useNewChat.getState().start(created.id);
+                useNewChat.getState().pick(created.id);
+                navigate({ kind: 'new' });
                 setCreated(null);
               }}
             />
@@ -909,6 +911,9 @@ function McpForm({ initial, onSave, onCancel, onTextConfig }: {
  * are load-bearing (#121). */
 export type ProfileDraft = {
   name: string;
+  /** The family's namespace in a chat link (ADR 0010). Blank means: take
+   * the name's own slug. */
+  slug: string;
   type: 'websocket' | 'stdio';
   url: string;
   command: string;
@@ -917,10 +922,22 @@ export type ProfileDraft = {
   mcpServerIds: string[];
 };
 /** Field-level validation, shared by unit tests: every key names a field the
- * form must block saving on. */
-export function profileDraftErrors(draft: ProfileDraft): Partial<Record<'name' | 'url' | 'command' | 'path', string>> {
-  const errors: Partial<Record<'name' | 'url' | 'command' | 'path', string>> = {};
+ * form must block saving on. The slug (ADR 0010) is checked against the
+ * other families, so two families never share a namespace. */
+export function profileDraftErrors(
+  draft: ProfileDraft,
+  profiles: AgentProfile[] = [],
+  ownId: string | null = null,
+): Partial<Record<'name' | 'slug' | 'url' | 'command' | 'path', string>> {
+  const errors: Partial<Record<'name' | 'slug' | 'url' | 'command' | 'path', string>> = {};
   if (!draft.name.trim()) errors.name = t('settings.nameRequired');
+  const slug = draft.slug.trim();
+  if (slug) {
+    if (!SLUG_PATTERN.test(slug)) errors.slug = t('settings.slugInvalid');
+    else if (profiles.some((profile) => profile.id !== ownId && profile.slug === slug)) {
+      errors.slug = t('settings.slugTaken');
+    }
+  }
   if (draft.type === 'websocket' && !draft.url.trim()) errors.url = t('settings.endpointRequired');
   if (draft.type === 'stdio' && !draft.command.trim()) errors.command = t('settings.commandRequired');
   if (draft.workspace.kind === 'local-directory' && !draft.workspace.path.trim()) errors.path = t('settings.pathRequired');
@@ -939,6 +956,7 @@ function ProfileForm({ initial, onSave, onCancel }: {
   const stdioAvailable = hasStdioHost();
   const [draft, setDraft] = useState<ProfileDraft>(() => ({
     name: initial?.name ?? '',
+    slug: initial?.slug ?? '',
     type: initial?.kind ?? 'websocket',
     url: initial?.kind === 'websocket' ? initial.url : '',
     command: initial?.kind === 'stdio' ? initial.command : '',
@@ -954,7 +972,9 @@ function ProfileForm({ initial, onSave, onCancel }: {
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>(() => loadMcpServers());
   useEffect(() => subscribeMcpServers(setMcpServers), []);
   const [showErrors, setShowErrors] = useState(false);
-  const errors = profileDraftErrors(draft);
+  // The other families, so the slug stays unique among them.
+  const profiles = useMemo(() => loadProfiles(), []);
+  const errors = profileDraftErrors(draft, profiles, initial?.id ?? null);
   // 测试连接 (#221): the handshake-then-drop probe's verdict. The run token
   // drops late settles — a second click or an unmounted form must not write
   // a stale verdict over a newer one.
@@ -967,7 +987,7 @@ function ProfileForm({ initial, onSave, onCancel }: {
   const testRun = useRef(0);
   // Astryx TextInput surfaces errors through its status object; they appear
   // only after a rejected submit, never while the user is still typing.
-  const statusOf = (field: 'name' | 'url' | 'command' | 'path') =>
+  const statusOf = (field: 'name' | 'slug' | 'url' | 'command' | 'path') =>
     showErrors && errors[field] ? { type: 'error' as const, message: errors[field] } : undefined;
 
   const set = (patch: Partial<ProfileDraft>) => setDraft((prev) => ({ ...prev, ...patch }));
@@ -994,10 +1014,13 @@ function ProfileForm({ initial, onSave, onCancel }: {
       return;
     }
     const workspace = draftWorkspace();
+    // A blank slug takes the name's own (ADR 0010). The loader keeps the
+    // list free of duplicates; here the form blocks the collision.
+    const slug = draft.slug.trim() || slugify(draft.name);
     onSave(
       draft.type === 'stdio'
-        ? { id: initial?.id ?? newProfileId(), name: draft.name.trim(), kind: 'stdio', command: draft.command.trim(), args: draft.args.trim(), workspace, mcpServerIds: draft.mcpServerIds }
-        : { id: initial?.id ?? newProfileId(), name: draft.name.trim(), kind: 'websocket', url: draft.url.trim(), workspace, mcpServerIds: draft.mcpServerIds },
+        ? { id: initial?.id ?? newProfileId(), name: draft.name.trim(), slug, kind: 'stdio', command: draft.command.trim(), args: draft.args.trim(), workspace, mcpServerIds: draft.mcpServerIds }
+        : { id: initial?.id ?? newProfileId(), name: draft.name.trim(), slug, kind: 'websocket', url: draft.url.trim(), workspace, mcpServerIds: draft.mcpServerIds },
     );
   };
 
@@ -1010,6 +1033,14 @@ function ProfileForm({ initial, onSave, onCancel }: {
         placeholder={t('settings.profileNamePlaceholder')}
         status={statusOf('name')}
         hasAutoFocus={!initial}
+      />
+      <TextInput
+        label={t('settings.profileSlug')}
+        value={draft.slug}
+        onChange={(slug) => set({ slug })}
+        placeholder={slugify(draft.name) || t('settings.profileSlugPlaceholder')}
+        status={statusOf('slug')}
+        description={t('settings.profileSlugHint')}
       />
       <Selector
         label={t('settings.profileType')}
