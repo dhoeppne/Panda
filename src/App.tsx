@@ -31,6 +31,7 @@ import {
   type SwipeStart,
 } from './navSwipe';
 import { composerDraftKey, useComposerDrafts } from './composerDrafts';
+import { profileIdOfConnection } from './liveConnections';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
 import { familyCommandSource, sessionCommandSource, type CommandSource } from './commands';
@@ -194,7 +195,11 @@ function MainScreen() {
   const showNewChat = !onSettings && newChatFamily !== null && (newChatOpen || view === 'onboarding');
   const [starting, setStarting] = useState(false);
   const newChatDraftKey = composerDraftKey('new-chat', null);
-  const foregroundFamily = profiles.find((profile) => profile.id === activeConnectionId) ?? null;
+  // An extra connection of a family carries the family's id behind a '#', so
+  // the foreground family is the owner of the foreground connection.
+  const foregroundOwner =
+    activeConnectionId === null ? null : profileIdOfConnection(activeConnectionId) ?? activeConnectionId;
+  const foregroundFamily = profiles.find((profile) => profile.id === foregroundOwner) ?? null;
   // The `/` menu (commands.ts): a new chat has no session yet, so it shows
   // the list the picked family sent at `initialize`.
   const newChatSlot = usePanda((s) => (newChatFamily ? s.connections[newChatFamily.id] : undefined));
