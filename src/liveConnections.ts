@@ -14,6 +14,7 @@ import type {
   PermissionOptionKind,
 } from './protocol/types';
 import { connectionStorePort, usePanda, type ConnectionStorePort, type SessionEntry, type SessionSwitchSnapshot } from './store';
+import { connectionLifecycle } from './projector/connectionLifecycle';
 import {
   canonicalArgs,
   liveTargetEndpoint,
@@ -59,6 +60,32 @@ export const DIRECT_CONNECTION_PREFIX = 'direct:';
 
 export function isDirectConnectionId(connectionId: string): boolean {
   return connectionId.startsWith(DIRECT_CONNECTION_PREFIX);
+}
+
+/**
+ * The separator between a profile id and the number of an extra connection
+ * of that profile. A profile id is a UUID, so '#' never appears in one.
+ */
+const EXTRA_CONNECTION_SEPARATOR = '#';
+
+/**
+ * The id of the Nth extra connection of a family (N counts from 1). A family
+ * holds more than one connection when a second live session needs its own
+ * link: one connection serves one live session (ADR 0002), so a running
+ * session keeps its link and its turn while the next session gets another.
+ */
+export function extraConnectionId(profileId: string, n: number): string {
+  return `${profileId}${EXTRA_CONNECTION_SEPARATOR}${n}`;
+}
+
+/**
+ * The profile id that owns a connection id: the id itself for a profile
+ * connection, the part before '#' for an extra connection of a profile. Null
+ * for a 临时直连, which owns no profile.
+ */
+export function profileIdOfConnection(connectionId: string): string | null {
+  const at = connectionId.indexOf(EXTRA_CONNECTION_SEPARATOR);
+  return at === -1 ? null : connectionId.slice(0, at);
 }
 
 export function newDirectConnectionId(): string {
@@ -973,7 +1000,7 @@ export function reconnectLiveConnection(
     notifyUser('error', t('acp.notice.reconnectNoWorkspace'));
     return;
   }
-  const profileId = isDirectConnectionId(connectionId) ? null : connectionId;
+  const profileId = isDirectConnectionId(connectionId) ? null : profileIdOfConnection(connectionId) ?? connectionId;
   void connectLiveConnection(connectionId, target, workspace, { resume: opts?.resume, profileId });
 }
 
@@ -1073,7 +1100,11 @@ export function reconcileProfileSlots(profiles: AgentProfile[]): void {
   seedProfileSlots(profiles);
   const known = new Set(profiles.map((profile) => profile.id));
   for (const connectionId of Object.keys(usePanda.getState().connections)) {
-    if (!isDirectConnectionId(connectionId) && !known.has(connectionId)) removeLiveConnection(connectionId);
+    if (isDirectConnectionId(connectionId)) continue;
+    // An extra connection of a family belongs to that family: it goes when
+    // the family goes.
+    const owner = profileIdOfConnection(connectionId) ?? connectionId;
+    if (!known.has(owner)) removeLiveConnection(connectionId);
   }
 }
 
@@ -1101,26 +1132,85 @@ export function connectProfilesInBackground(profiles: AgentProfile[]): void {
 }
 
 /**
- * Creates a new session on one family for the new-chat view's first send:
- * `session/new` on a live link, else a connect with the new-session intent.
- * Either way the family's connection takes the foreground. Resolves true
- * once the connection holds a session it did not hold before; false when
- * the connect or `session/new` failed (the failure is already reported on
- * the connection).
+ * The connection ids of one family: the profile's own connection first, then
+ * its extra connections in the order the store holds them.
+ */
+export function familyConnectionIds(profileId: string): string[] {
+  const ids = [profileId];
+  for (const connectionId of Object.keys(usePanda.getState().connections)) {
+    if (connectionId === profileId) continue;
+    if (profileIdOfConnection(connectionId) === profileId) ids.push(connectionId);
+  }
+  return ids;
+}
+
+/** The next free id of an extra connection of a family. */
+function nextExtraConnectionId(profileId: string): string {
+  for (let n = 1; n < 1000; n += 1) {
+    const id = extraConnectionId(profileId, n);
+    if (!usePanda.getState().connections[id]) return id;
+  }
+  console.warn(`[panda/acp] too many connections for the family "${profileId}" — no id left`);
+  return extraConnectionId(profileId, 1000);
+}
+
+/**
+ * True when the connection can take a new session now: it is connected, it
+ * has a client, and it is not busy. A busy connection runs a turn or a
+ * session switch, and the client refuses a second session then — the turn
+ * would be stranded by the foreign-session filter.
+ */
+function canTakeNewSession(connectionId: string): boolean {
+  const slot = usePanda.getState().connections[connectionId];
+  if (!slot || slot.connection.status !== 'connected') return false;
+  if (!liveConnections.has(connectionId)) return false;
+  return !connectionLifecycle(slot).busy;
+}
+
+/**
+ * Creates a new session on one family for the new-chat view's first send.
+ *
+ * One connection serves one live session (ADR 0002). A family whose
+ * connections are all busy — a running session holds its link and its turn —
+ * gets an extra connection to the same endpoint, and the new session is
+ * created there. The running session keeps its turn, and both sessions stay
+ * live on their own link.
+ *
+ * Either way the connection that holds the new session takes the foreground.
+ * Resolves true once that connection holds a session it did not hold before;
+ * false when the connect or `session/new` failed (the failure is already
+ * reported on the connection).
  */
 export async function startChatSession(profile: AgentProfile): Promise<boolean> {
-  const before = usePanda.getState().connections[profile.id]?.connection ?? null;
-  const previousSessionId = before?.sessionId ?? null;
-  if (before?.status === 'connected' && liveConnections.has(profile.id)) {
-    await newLiveSession(workspaceToCwd(profile.workspace), profile.id);
-  } else {
-    await connectLiveConnection(profile.id, profileToLiveTarget(profile), profile.workspace, {
-      profileId: profile.id,
-      sessionIntent: 'new-session',
-    });
+  const cwd = workspaceToCwd(profile.workspace);
+  // A connection that can take the session now serves it.
+  for (const connectionId of familyConnectionIds(profile.id)) {
+    if (!canTakeNewSession(connectionId)) continue;
+    const previous = usePanda.getState().connections[connectionId]?.connection.sessionId ?? null;
+    await newLiveSession(cwd, connectionId);
+    const after = usePanda.getState().connections[connectionId]?.connection ?? null;
+    if (after?.status === 'connected' && after.sessionId !== null && after.sessionId !== previous) return true;
+    // The client refused the new session (a turn started in between): the
+    // family gets a second connection rather than a failed chat.
   }
-  const after = usePanda.getState().connections[profile.id]?.connection ?? null;
-  return after?.status === 'connected' && after.sessionId !== null && after.sessionId !== previousSessionId;
+  // No connection of the family can take a session. The family's own
+  // connection serves it when that connection is down: a fresh link needs no
+  // second one. A busy connection keeps its running session, so the new
+  // session gets an extra connection to the same endpoint.
+  const primary = usePanda.getState().connections[profile.id] ?? null;
+  const primaryLive = primary !== null && primary.connection.status === 'connected' && liveConnections.has(profile.id);
+  const connectionId = primaryLive ? nextExtraConnectionId(profile.id) : profile.id;
+  // The extra connection dials the endpoint the family is really on, so a
+  // profile edit does not split the family over two addresses.
+  const target = primaryLive
+    ? (reconnectTargetFor(profile.id) ?? profileToLiveTarget(profile))
+    : profileToLiveTarget(profile);
+  await connectLiveConnection(connectionId, target, profile.workspace, {
+    profileId: profile.id,
+    sessionIntent: 'new-session',
+  });
+  const after = usePanda.getState().connections[connectionId]?.connection ?? null;
+  return after?.status === 'connected' && after.sessionId !== null;
 }
 
 /**
