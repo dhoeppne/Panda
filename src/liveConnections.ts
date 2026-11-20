@@ -1,7 +1,7 @@
 import type { RequestPermissionRequest } from '@agentclientprotocol/sdk';
 import { t } from './i18n';
 import { LiveAcpClient } from './acp/LiveAcpClient';
-import { WebSocketTransport } from './acp/transport/WebSocketTransport';
+import { createWebSocketTransport } from './acp/transport/webSocketHost';
 import type {
   AcpAuthMethod,
   AcpAvailableCommand,
@@ -785,7 +785,7 @@ async function runConnect(
   abandonStagedSwitch(entry, 'connect replacing the connection');
   let transport: import('./acp/transport/AcpTransport').AcpTransport;
   if (normalizedTarget.kind === 'websocket') {
-    transport = new WebSocketTransport(normalizedTarget.url);
+    transport = createWebSocketTransport(normalizedTarget.url);
   } else {
     const factory = stdioFactory;
     if (!factory) {
@@ -913,7 +913,7 @@ export async function testLiveTarget(target: LiveTarget, workspace: Workspace): 
     const transport: import('./acp/transport/AcpTransport').AcpTransport = testTransportFactory
       ? testTransportFactory(normalizedTarget, cwd)
       : normalizedTarget.kind === 'websocket'
-        ? new WebSocketTransport(normalizedTarget.url)
+        ? createWebSocketTransport(normalizedTarget.url)
         : stdioFactory!({ program: normalizedTarget.command, args: splitArgs(normalizedTarget.args), cwd });
     await Promise.race([probe.connect(transport, cwd, { probe: true }), verdictArrived]);
   } catch (err) {

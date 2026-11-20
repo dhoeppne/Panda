@@ -1,8 +1,8 @@
 # panda-desktop
 
-Tauri v2 shell hosting the workspace's Vite app, with two native boundaries:
-spawning local stdio agents and handing external links to the operating
-system's default URL handler. The product is the webview; its process plane
+Tauri v2 shell hosting the workspace's Vite app, with native boundaries for
+local stdio agents, external links, and authenticated WebSocket connections.
+The product is the webview; its process plane
 is described by ADR
 [0007](../docs/adr/0007-desktop-shell-and-stdio-transport.md)).
 
@@ -22,6 +22,34 @@ Prerequisites: the workspace's Node 24 / pnpm 11, plus a Rust toolchain
 (rustup). First run compiles `src-tauri` (a few minutes); later runs are
 incremental — note that editing `tauri.conf.json` also triggers a rebuild,
 because the config is embedded via `generate_context!`.
+
+## Servers behind a website login
+
+The desktop app has its own persistent website-data store. Signing into a
+server in Safari or Chrome does not sign the desktop app in.
+
+1. In Settings → Agents, add or edit the WebSocket profile and enter its
+   `wss://` endpoint.
+2. Click **Sign in to server**. Complete the server's login (including MFA)
+   in the new app window, then close that window.
+3. Click **Test connection**, then save the profile and connect normally.
+
+`src-tauri/src/server_auth.rs` opens the login window without local IPC
+capabilities. Its default persistent cookie store is shared with the main
+webview. The native WebSocket handshake reads matching cookies from that
+store, including HttpOnly cookies, and supplies them without exposing
+credentials to JavaScript. Domain, path, Secure and expiry rules are checked;
+redirects are not followed with credentials. This avoids cross-site cookie
+restrictions on sockets opened from the bundled app's local origin.
+When the server session expires, sign in again from the profile form.
+
+The native commands are `server_sign_in`, `websocket_connect`,
+`websocket_write`, and `websocket_close`. They accept calls only from the
+local main window. Both real connections and connection tests use this
+transport; the web app continues using browser WebSockets.
+
+Verify with `cargo test --manifest-path desktop/src-tauri/Cargo.toml` and
+`pnpm exec vitest run src/acp/transport/NativeWebSocketTransport.test.ts`.
 
 ## Layout
 

@@ -20,6 +20,7 @@ import {
 import { testLiveTarget } from '../liveConnections';
 import { useNewChat } from '../newChat';
 import { hasStdioHost } from '../acp/transport/stdioHost';
+import { getWebSocketHost } from '../acp/transport/webSocketHost';
 import {
   loadMcpServers,
   newMcpServerId,
@@ -985,6 +986,22 @@ function ProfileForm({ initial, onSave, onCancel }: {
     | null
   >(null);
   const testRun = useRef(0);
+  useEffect(() => () => { testRun.current += 1; }, []);
+  const [signIn, setSignIn] = useState<'opening' | 'opened' | null>(null);
+  const serverHost = getWebSocketHost();
+  const openServerSignIn = () => {
+    if (!serverHost) return;
+    setSignIn('opening');
+    const token = ++testRun.current;
+    setTest(null);
+    void serverHost.signIn(draft.url.trim()).then(() => {
+      if (testRun.current === token) setSignIn('opened');
+    }).catch((error: unknown) => {
+      if (testRun.current !== token) return;
+      setSignIn(null);
+      setTest({ state: 'fail', error: error instanceof Error ? error.message : String(error) });
+    });
+  };
   // Astryx TextInput surfaces errors through its status object; they appear
   // only after a rejected submit, never while the user is still typing.
   const statusOf = (field: 'name' | 'slug' | 'url' | 'command' | 'path') =>
@@ -1143,6 +1160,15 @@ function ProfileForm({ initial, onSave, onCancel }: {
       </div>
       {initial && <p className="settings-card-desc">{t('settings.editNote')}</p>}
       <div className="settings-form-actions">
+        {serverHost && draft.type === 'websocket' && (
+          <Button
+            variant="secondary"
+            size="sm"
+            label={t('settings.serverSignIn')}
+            isDisabled={signIn === 'opening' || test?.state === 'running' || !draft.url.trim()}
+            clickAction={openServerSignIn}
+          />
+        )}
         {/* 测试连接 (#221): an endpoint typo should surface here, not at the
             first session. Handshake-then-drop — no slot, no sidebar trace. */}
         <Button
@@ -1150,12 +1176,15 @@ function ProfileForm({ initial, onSave, onCancel }: {
           size="sm"
           label={test?.state === 'running' ? t('settings.testConnectionRunning') : t('settings.testConnection')}
           icon={<PlugZap size={12} />}
-          isDisabled={test?.state === 'running' || (draft.type === 'websocket' ? !draft.url.trim() : !draft.command.trim())}
+          isDisabled={signIn === 'opening' || test?.state === 'running' || (draft.type === 'websocket' ? !draft.url.trim() : !draft.command.trim())}
           clickAction={runTest}
         />
         <Button variant="primary" size="sm" label={initial ? t('settings.save') : t('settings.create')} clickAction={submit} />
         <Button variant="ghost" size="sm" label={t('settings.cancel')} clickAction={onCancel} />
       </div>
+      {signIn === 'opened' && (
+        <p className="settings-card-desc" role="status">{t('settings.serverSignInHelp')}</p>
+      )}
       {test?.state === 'ok' && (
         <p className="settings-test-result settings-test-result--ok">
           {t('settings.testOk', { agent: test.agentName, v: String(test.protocolVersion) })}

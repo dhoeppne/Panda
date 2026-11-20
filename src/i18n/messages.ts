@@ -533,6 +533,11 @@ export const messages = {
   'settings.cancel': { en: 'Cancel', zh: '取消' },
   // 测试连接 (#221): handshake-then-drop verdict on the profile form.
   'settings.testConnection': { en: 'Test connection', zh: '测试连接' },
+  'settings.serverSignIn': { en: 'Sign in to server', zh: '登录服务器' },
+  'settings.serverSignInHelp': {
+    en: 'Finish signing in in the new window, close it, then test the connection here. Your browser login is separate from this app.',
+    zh: '在新窗口中完成登录并关闭窗口，然后在此测试连接。浏览器的登录状态与此应用分开保存。',
+  },
   'settings.testConnectionRunning': { en: 'Testing…', zh: '测试中…' },
   'settings.testOk': {
     en: 'Reached: {agent} (protocol v{v}) — the link was closed after the handshake',
