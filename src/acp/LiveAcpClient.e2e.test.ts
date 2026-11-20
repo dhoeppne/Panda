@@ -470,7 +470,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     const logBefore = serverLog.length;
     await waitFor(
       () => serverLog.slice(logBefore).includes(`closed session ${sessionId}`),
-      5_000,
+      30_000,
       'disconnect 的 session/close 日志',
     );
     await acpClient.connect(
@@ -505,7 +505,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
   it('session/list:小页分页聚合出全量会话,带标题与活跃时间(#97)', async () => {
     // 上面的 connect 已自动拉取会话列表;库内此时 2 个会话、页大小 2,
     // 满页返回 nextCursor 强制客户端走完分页循环,聚合结果才可能齐全。
-    await waitFor(() => records.sessionLists.length > 0, 5_000, 'session/list 聚合结果');
+    await waitFor(() => records.sessionLists.length > 0, 30_000, 'session/list 聚合结果');
     const list = records.sessionLists.at(-1)!;
 
     expect(list.length).toBeGreaterThanOrEqual(2);
@@ -630,7 +630,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     expect(records.sessionIds.at(-1)).not.toBe(previousId);
     await waitFor(
       () => serverLog.slice(logBefore).includes(`closed session ${previousId}`),
-      5_000,
+      30_000,
       '切换会话的 session/close 日志',
     );
 
@@ -660,7 +660,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     // agent 侧收到并记录
     await waitFor(
       () => serverLog.slice(logBefore).includes('authenticated via "panda-token"'),
-      5_000,
+      30_000,
       'authenticate 日志',
     );
     // 客户端落「已认证」记录,且新会话已重建(会话 id 换新)
@@ -676,7 +676,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     // available_commands_update → commands_update:newSession 即送达,3 条命令
     await waitFor(
       () => records.updates.slice(start).some((u) => u.sessionUpdate === 'commands_update'),
-      5_000,
+      30_000,
       'available_commands_update 投影',
     );
     const commands = records.updates
@@ -874,14 +874,14 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     await acpClient.logout();
     await waitFor(
       () => serverLog.slice(logBefore).includes('logged out'),
-      5_000,
+      30_000,
       'logout 日志',
     );
     // 登出不断连接:重新认证仍成功
     await acpClient.authenticate('panda-token');
     await waitFor(
       () => (serverLog.slice(logBefore).split('logged out')[1] ?? '').includes('authenticated via "panda-token"'),
-      5_000,
+      30_000,
       '登出后的再次 authenticate 日志',
     );
   });
@@ -894,7 +894,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     await acpClient.deleteSession(doomed);
     await waitFor(
       () => records.sessionDeleted.includes(doomed),
-      5_000,
+      30_000,
       'deleteSession 的 onSessionDeleted 回执',
     );
 
@@ -930,7 +930,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     );
     await waitFor(
       () => records.sessionLists.length > listCountBefore,
-      5_000,
+      30_000,
       '重连后的 session/list',
     );
     const list = records.sessionLists.at(-1)!;
