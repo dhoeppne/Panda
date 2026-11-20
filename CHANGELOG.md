@@ -8,13 +8,6 @@ follow the releases published from this repository.
 
 ### Added
 
-- **A session shows a loading state while it opens** — clicking another chat
-  in the sidebar calls `session/load`, and the history travels over the wire
-  before the chat can be read. The message column now shows a spinner and
-  "Loading session…" until the switch commits, and the header names the
-  session being opened right away, instead of leaving the previous
-  conversation on screen with no sign that anything was happening. The plan
-  dock of the session being left goes away with it.
 - **Settings sync across devices** — an optional settings store
   (`server/settings-server.mjs`, the `settings` service in `compose.yaml`)
   keeps agent profiles, the sidebar layout, MCP servers, theme, font sizes,
@@ -49,6 +42,13 @@ follow the releases published from this repository.
   cards. A call waiting for approval and a failed call stay outside, right
   below the row. A thought, a message or a new turn ends the run. History
   loaded by `session/load` folds the same way as a live turn.
+- **A session shows a loading state while it opens** — clicking another chat
+  in the sidebar calls `session/load`, and the history travels over the wire
+  before the chat can be read. The message column now shows a spinner and
+  "Loading session…" until the switch commits, and the header names the
+  session being opened right away, instead of leaving the previous
+  conversation on screen with no sign that anything was happening. The plan
+  dock of the session being left goes away with it.
 
 ### Removed
 

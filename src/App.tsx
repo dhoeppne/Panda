@@ -376,11 +376,6 @@ function MainScreen() {
                 onResolveElicitation={controller.resolveElicitation}
                 onOpenElicitationUrl={controller.openElicitationUrl}
               />
-            ) : view === 'session-loading' ? (
-              // A session switch is in flight: the target's history is
-              // replaying over the wire, so the column waits for it instead
-              // of showing the conversation the user just left.
-              <SessionLoading />
             ) : view === 'onboarding' ? (
               // First-run onboarding (#200): no foreground session document
               // to show → the two ways in (connect your own agent / existing
@@ -390,6 +385,11 @@ function MainScreen() {
               // disconnect does NOT land here (#218): its retained document
               // stays readable, so the pointer is still set.
               <EmptyState />
+            ) : view === 'session-loading' ? (
+              // A session switch is in flight: the target's history is
+              // replaying over the wire, so the column waits for it instead
+              // of showing the conversation the user just left.
+              <SessionLoading />
             ) : (
               <MessageStream
                 key={foregroundSessionKey}
