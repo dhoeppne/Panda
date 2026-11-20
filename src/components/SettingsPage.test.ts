@@ -10,6 +10,7 @@ import {
 
 const draft = (patch: Partial<ProfileDraft> = {}): ProfileDraft => ({
   name: 'test-agent',
+  slug: 'test-agent',
   type: 'websocket',
   url: 'ws://localhost:8766/acp',
   command: '',

@@ -19,10 +19,42 @@ import { randomUuid } from './uuid';
 /** One saved connection preset. `name` is user-chosen — never the protocol's
  * agent-reported name (agentName at initialize; see CONTEXT.md).
  * `mcpServerIds` is the profile's MCP whitelist (#148): only servers listed
- * here ride this profile's sessions — an empty list carries none. */
+ * here ride this profile's sessions — an empty list carries none.
+ * `slug` is the family's URL namespace (ADR 0010): the name of a chat route
+ * and the half of a chat id that names the family. A rename of the profile
+ * never touches it, so the links to its chats keep working. */
 export type AgentProfile =
-  | { id: string; name: string; kind: 'websocket'; url: string; workspace: Workspace; mcpServerIds: string[] }
-  | { id: string; name: string; kind: 'stdio'; command: string; args: string; workspace: Workspace; mcpServerIds: string[] };
+  | { id: string; name: string; slug: string; kind: 'websocket'; url: string; workspace: Workspace; mcpServerIds: string[] }
+  | { id: string; name: string; slug: string; kind: 'stdio'; command: string; args: string; workspace: Workspace; mcpServerIds: string[] };
+
+/** The shape of a slug: lowercase letters, digits and dashes. It becomes a
+ * path segment of a chat route, so it stays short and plain. */
+export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/** The slug a name suggests: lowercase, dashes between the words. A name
+ * with no latin word (Chinese, for one) has no slug of its own — the
+ * caller falls back to a generic one. */
+export function slugify(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+}
+
+/** A slug no other profile holds. The suffix keeps the list usable when
+ * two names slug the same way. */
+export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
+  const root = base.length > 0 ? base : 'agent';
+  if (!taken.has(root)) return root;
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${root}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${root}-${randomUuid().slice(0, 8)}`;
+}
 
 /** The connection target a profile (or the custom-address form) reduces to —
  * the connection manager's currency (issue #121). Pure data: how a target is
@@ -139,17 +171,21 @@ function normalizeProfile(value: unknown): AgentProfile | null {
   if (!isProfile(value)) return null;
   const entry = value as Record<string, unknown> & { id: string; name: string; workspace: Workspace };
   const mcpServerIds = normalizeMcpServerIds(entry.mcpServerIds);
+  // The slug (ADR 0010) rides the stored entry. An entry without one (every
+  // entry before ADR 0010) is given one by loadProfiles, which knows the
+  // other slugs of the list.
+  const slug = typeof entry.slug === 'string' && SLUG_PATTERN.test(entry.slug) ? entry.slug : '';
   if (entry.kind === undefined) {
     // Legacy shape: id/name/url/workspace. A missing/blank url was already
     // malformed before #121 — treat it the same as a fresh websocket entry
     // with no url: dropped, loudly, by the caller.
     return typeof entry.url === 'string' && entry.url.length > 0
-      ? { id: entry.id, name: entry.name, kind: 'websocket', url: entry.url, workspace: entry.workspace, mcpServerIds }
+      ? { id: entry.id, name: entry.name, slug, kind: 'websocket', url: entry.url, workspace: entry.workspace, mcpServerIds }
       : null;
   }
   if (entry.kind === 'websocket') {
     return typeof entry.url === 'string' && entry.url.length > 0
-      ? { id: entry.id, name: entry.name, kind: 'websocket', url: entry.url, workspace: entry.workspace, mcpServerIds }
+      ? { id: entry.id, name: entry.name, slug, kind: 'websocket', url: entry.url, workspace: entry.workspace, mcpServerIds }
       : null;
   }
   if (entry.kind === 'stdio') {
@@ -159,6 +195,7 @@ function normalizeProfile(value: unknown): AgentProfile | null {
       ? {
           id: entry.id,
           name: entry.name,
+          slug,
           kind: 'stdio',
           command: entry.command,
           args: typeof entry.args === 'string' ? entry.args : '',
@@ -210,6 +247,18 @@ export function loadProfiles(storage: ProfileStorage = defaultStorage()): AgentP
       }
       if (profile !== entry) changed = true; // legacy entry upgraded to the #121 shape
       normalized.push(profile);
+    }
+    // Every profile carries a slug (ADR 0010): the namespace of its chats in
+    // a route. The derivation is deterministic — the list order and the names
+    // — so every device that reads the same list reads the same slugs.
+    const taken = new Set<string>();
+    for (const profile of normalized) {
+      const slug = uniqueSlug(profile.slug !== '' ? profile.slug : slugify(profile.name), taken);
+      taken.add(slug);
+      if (slug !== profile.slug) {
+        profile.slug = slug;
+        changed = true;
+      }
     }
     if (changed) {
       // 回写净化/迁移后的列表(不走 saveProfiles:它会再触发 notify→load 重入)

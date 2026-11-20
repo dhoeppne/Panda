@@ -14,6 +14,8 @@ import type {
   PermissionOptionKind,
 } from './protocol/types';
 import { connectionStorePort, usePanda, type ConnectionStorePort, type SessionEntry, type SessionSwitchSnapshot } from './store';
+import { connectionLifecycle } from './projector/connectionLifecycle';
+import { connectionOfNamespace, extraConnectionId, profileIdOfConnection, type ChatId } from './chatId';
 import {
   canonicalArgs,
   liveTargetEndpoint,
@@ -60,6 +62,7 @@ export const DIRECT_CONNECTION_PREFIX = 'direct:';
 export function isDirectConnectionId(connectionId: string): boolean {
   return connectionId.startsWith(DIRECT_CONNECTION_PREFIX);
 }
+
 
 export function newDirectConnectionId(): string {
   return DIRECT_CONNECTION_PREFIX + randomUuid();
@@ -683,7 +686,30 @@ export async function connectLiveConnection(
   return connectLiveConnectionInternal(connectionId, target, workspace, opts, 'manual');
 }
 
+/**
+ * The connect in flight per connection. A second caller — the chat route
+ * opening a session while the sidebar connects the families — waits for the
+ * first instead of replacing it.
+ */
+const connecting = new Map<string, Promise<void>>();
+
 async function connectLiveConnectionInternal(
+  connectionId: string,
+  target: LiveTarget,
+  workspace: Workspace,
+  opts: LiveConnectOptions | undefined,
+  origin: 'manual' | 'automatic',
+): Promise<void> {
+  const run = runConnect(connectionId, target, workspace, opts, origin);
+  connecting.set(connectionId, run);
+  try {
+    await run;
+  } finally {
+    if (connecting.get(connectionId) === run) connecting.delete(connectionId);
+  }
+}
+
+async function runConnect(
   connectionId: string,
   target: LiveTarget,
   workspace: Workspace,
@@ -912,7 +938,9 @@ export function reconnectTargetFor(connectionId: string): LiveTarget | null {
   const remembered = liveConnections.get(connectionId)?.lastTarget ?? null;
   if (remembered) return remembered;
   if (isDirectConnectionId(connectionId)) return null;
-  const profile = loadProfiles().find((entry) => entry.id === connectionId) ?? null;
+  // An extra connection of a family dials the endpoint of that family.
+  const owner = profileIdOfConnection(connectionId) ?? connectionId;
+  const profile = loadProfiles().find((entry) => entry.id === owner) ?? null;
   return profile ? profileToLiveTarget(profile) : null;
 }
 
@@ -973,7 +1001,7 @@ export function reconnectLiveConnection(
     notifyUser('error', t('acp.notice.reconnectNoWorkspace'));
     return;
   }
-  const profileId = isDirectConnectionId(connectionId) ? null : connectionId;
+  const profileId = isDirectConnectionId(connectionId) ? null : profileIdOfConnection(connectionId) ?? connectionId;
   void connectLiveConnection(connectionId, target, workspace, { resume: opts?.resume, profileId });
 }
 
@@ -1073,7 +1101,11 @@ export function reconcileProfileSlots(profiles: AgentProfile[]): void {
   seedProfileSlots(profiles);
   const known = new Set(profiles.map((profile) => profile.id));
   for (const connectionId of Object.keys(usePanda.getState().connections)) {
-    if (!isDirectConnectionId(connectionId) && !known.has(connectionId)) removeLiveConnection(connectionId);
+    if (isDirectConnectionId(connectionId)) continue;
+    // An extra connection of a family belongs to that family: it goes when
+    // the family goes.
+    const owner = profileIdOfConnection(connectionId) ?? connectionId;
+    if (!known.has(owner)) removeLiveConnection(connectionId);
   }
 }
 
@@ -1101,26 +1133,85 @@ export function connectProfilesInBackground(profiles: AgentProfile[]): void {
 }
 
 /**
- * Creates a new session on one family for the new-chat view's first send:
- * `session/new` on a live link, else a connect with the new-session intent.
- * Either way the family's connection takes the foreground. Resolves true
- * once the connection holds a session it did not hold before; false when
- * the connect or `session/new` failed (the failure is already reported on
- * the connection).
+ * The connection ids of one family: the profile's own connection first, then
+ * its extra connections in the order the store holds them.
+ */
+export function familyConnectionIds(profileId: string): string[] {
+  const ids = [profileId];
+  for (const connectionId of Object.keys(usePanda.getState().connections)) {
+    if (connectionId === profileId) continue;
+    if (profileIdOfConnection(connectionId) === profileId) ids.push(connectionId);
+  }
+  return ids;
+}
+
+/** The next free id of an extra connection of a family. */
+function nextExtraConnectionId(profileId: string): string {
+  for (let n = 1; n < 1000; n += 1) {
+    const id = extraConnectionId(profileId, n);
+    if (!usePanda.getState().connections[id]) return id;
+  }
+  console.warn(`[panda/acp] too many connections for the family "${profileId}" — no id left`);
+  return extraConnectionId(profileId, 1000);
+}
+
+/**
+ * True when the connection can take a new session now: it is connected, it
+ * has a client, and it is not busy. A busy connection runs a turn or a
+ * session switch, and the client refuses a second session then — the turn
+ * would be stranded by the foreign-session filter.
+ */
+function canTakeNewSession(connectionId: string): boolean {
+  const slot = usePanda.getState().connections[connectionId];
+  if (!slot || slot.connection.status !== 'connected') return false;
+  if (!liveConnections.has(connectionId)) return false;
+  return !connectionLifecycle(slot).busy;
+}
+
+/**
+ * Creates a new session on one family for the new-chat view's first send.
+ *
+ * One connection serves one live session (ADR 0002). A family whose
+ * connections are all busy — a running session holds its link and its turn —
+ * gets an extra connection to the same endpoint, and the new session is
+ * created there. The running session keeps its turn, and both sessions stay
+ * live on their own link.
+ *
+ * Either way the connection that holds the new session takes the foreground.
+ * Resolves true once that connection holds a session it did not hold before;
+ * false when the connect or `session/new` failed (the failure is already
+ * reported on the connection).
  */
 export async function startChatSession(profile: AgentProfile): Promise<boolean> {
-  const before = usePanda.getState().connections[profile.id]?.connection ?? null;
-  const previousSessionId = before?.sessionId ?? null;
-  if (before?.status === 'connected' && liveConnections.has(profile.id)) {
-    await newLiveSession(workspaceToCwd(profile.workspace), profile.id);
-  } else {
-    await connectLiveConnection(profile.id, profileToLiveTarget(profile), profile.workspace, {
-      profileId: profile.id,
-      sessionIntent: 'new-session',
-    });
+  const cwd = workspaceToCwd(profile.workspace);
+  // A connection that can take the session now serves it.
+  for (const connectionId of familyConnectionIds(profile.id)) {
+    if (!canTakeNewSession(connectionId)) continue;
+    const previous = usePanda.getState().connections[connectionId]?.connection.sessionId ?? null;
+    await newLiveSession(cwd, connectionId);
+    const after = usePanda.getState().connections[connectionId]?.connection ?? null;
+    if (after?.status === 'connected' && after.sessionId !== null && after.sessionId !== previous) return true;
+    // The client refused the new session (a turn started in between): the
+    // family gets a second connection rather than a failed chat.
   }
-  const after = usePanda.getState().connections[profile.id]?.connection ?? null;
-  return after?.status === 'connected' && after.sessionId !== null && after.sessionId !== previousSessionId;
+  // No connection of the family can take a session. The family's own
+  // connection serves it when that connection is down: a fresh link needs no
+  // second one. A busy connection keeps its running session, so the new
+  // session gets an extra connection to the same endpoint.
+  const primary = usePanda.getState().connections[profile.id] ?? null;
+  const primaryLive = primary !== null && primary.connection.status === 'connected' && liveConnections.has(profile.id);
+  const connectionId = primaryLive ? nextExtraConnectionId(profile.id) : profile.id;
+  // The extra connection dials the endpoint the family is really on, so a
+  // profile edit does not split the family over two addresses.
+  const target = primaryLive
+    ? (reconnectTargetFor(profile.id) ?? profileToLiveTarget(profile))
+    : profileToLiveTarget(profile);
+  await connectLiveConnection(connectionId, target, profile.workspace, {
+    profileId: profile.id,
+    sessionIntent: 'new-session',
+  });
+  const after = usePanda.getState().connections[connectionId]?.connection ?? null;
+  return after?.status === 'connected' && after.sessionId !== null;
 }
 
 /**
@@ -1130,27 +1221,97 @@ export async function startChatSession(profile: AgentProfile): Promise<boolean> 
  * on the connection's settled session), while offline slots point the UI at
  * the retained document directly (查看历史 without a protocol round-trip).
  */
-export function openLiveSession(connectionId: string, sessionId: string, cwd: string): void {
+export function openLiveSession(connectionId: string, sessionId: string, cwd: string): Promise<void> {
   const entry = liveConnections.get(connectionId);
   const slot = usePanda.getState().connections[connectionId];
   if (!entry || !slot) {
     console.warn(`[panda/acp] openSession ignored: unknown connection "${connectionId}"`);
     notifyUser('error', t('live.notice.unknownConnection'));
-    return;
+    return Promise.resolve();
   }
   const connected = slot.connection.status === 'connected';
   if (sessionId === slot.connection.sessionId) {
     // Already the connection's settled session — foregrounding suffices.
     foregroundConnection(connectionId);
-    return;
+    return Promise.resolve();
   }
   if (!connected) {
     // Retained documents render read-only; the UI session moves explicitly.
     usePanda.getState().setActiveConnection(connectionId, sessionId);
-    return;
+    return Promise.resolve();
   }
   foregroundConnection(connectionId);
-  void entry.client.loadSession(sessionId, cwd);
+  return entry.client.loadSession(sessionId, cwd);
+}
+
+/**
+ * Opens the chat a route names (ADR 0010).
+ *
+ * The family with that namespace connects if it is down, then the session is
+ * loaded on it. The connection that already holds the session wins, so a
+ * chat that is live on a family's extra connection (ADR 0009) keeps its
+ * turn instead of being stranded on the family's first connection.
+ *
+ * Resolves true once the connection holds the session.
+ */
+export async function openChatRoute(id: ChatId): Promise<boolean> {
+  const profiles = loadProfiles();
+  const known = Object.keys(usePanda.getState().connections);
+  const owner = connectionOfNamespace(id.namespace, profiles, known);
+  if (owner === null) {
+    console.warn(`[panda/acp] chat route ignored: no family carries the namespace "${id.namespace}"`);
+    notifyUser('error', t('live.notice.unknownChat'));
+    return false;
+  }
+  const holder = familyConnectionIds(owner).find(
+    (connectionId) => usePanda.getState().connections[connectionId]?.connection.sessionId === id.sessionId,
+  );
+  const connectionId = holder ?? owner;
+  if (!(await ensureConnected(connectionId))) {
+    console.warn(`[panda/acp] chat route refused: the family "${id.namespace}" did not come up`);
+    notifyUser('error', t('live.notice.chatUnavailable'));
+    return false;
+  }
+  const entry = usePanda.getState().connections[connectionId]?.sessions.find(
+    (session) => session.sessionId === id.sessionId,
+  );
+  if (!entry) {
+    console.warn(`[panda/acp] chat route refused: the family does not know session ${id.sessionId}`);
+    notifyUser('error', t('live.notice.unknownChat'));
+    return false;
+  }
+  await openLiveSession(connectionId, id.sessionId, entry.cwd);
+  return usePanda.getState().connections[connectionId]?.connection.sessionId === id.sessionId;
+}
+
+/**
+ * The connection is up: it is connected already, a connect is in flight (the
+ * sidebar's background connect), or one starts now.
+ */
+async function ensureConnected(connectionId: string): Promise<boolean> {
+  const state = usePanda.getState();
+  if (state.connections[connectionId]?.connection.status === 'connected') return true;
+  const inFlight = connecting.get(connectionId);
+  if (inFlight) {
+    await inFlight;
+    return usePanda.getState().connections[connectionId]?.connection.status === 'connected';
+  }
+  const target = reconnectTargetFor(connectionId);
+  if (!target) {
+    console.warn(`[panda/acp] connect ignored: no target for connection "${connectionId}"`);
+    return false;
+  }
+  const owner = profileIdOfConnection(connectionId) ?? connectionId;
+  const profile = loadProfiles().find((entry) => entry.id === owner);
+  const slot = usePanda.getState().connections[connectionId];
+  const workspace =
+    (slot?.connection.cwd != null ? cwdToWorkspace(slot.connection.cwd) : null) ?? profile?.workspace ?? null;
+  if (!workspace) {
+    console.warn(`[panda/acp] connect ignored: no workspace for connection "${connectionId}"`);
+    return false;
+  }
+  await connectLiveConnection(connectionId, target, workspace, { profileId: profile?.id ?? null });
+  return usePanda.getState().connections[connectionId]?.connection.status === 'connected';
 }
 
 /** Resolves the entry behind a foreground action, loudly tolerating "none". */
