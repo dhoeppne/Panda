@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { isolateWebKit, rehearsalConfig, rehearsalFeed, verifyRehearsal } from './updater-rehearsal.mjs';
+import { cachedRehearsalIdentity, isolateWebKit, rehearsalConfig, rehearsalFeed, verifyRehearsal } from './updater-rehearsal.mjs';
 
 const storeId = Array.from({ length: 16 }, (_, index) => index);
 describe('isolated updater rehearsal', () => {
@@ -21,6 +21,22 @@ describe('isolated updater rehearsal', () => {
   });
   it('requires an explicit data-store identifier', () => {
     expect(() => rehearsalConfig({ endpoint: 'http://127.0.0.1:4321/latest.json', storeId: [] })).toThrow('WebKit');
+  });
+  it('recovers the existing isolated identity without allocating a different data store', () => {
+    const config = rehearsalConfig({ endpoint: 'http://127.0.0.1:4321/latest.json', storeId });
+    expect(cachedRehearsalIdentity(config)).toEqual(storeId);
+  });
+  it('refuses to resume the personal app or an unrelated cached bundle', () => {
+    const config = rehearsalConfig({ endpoint: 'http://127.0.0.1:4321/latest.json', storeId });
+    expect(() => cachedRehearsalIdentity({ ...config, identifier: 'com.lukaisluka.panda' })).toThrow('isolated rehearsal');
+    expect(() => cachedRehearsalIdentity({ ...config, productName: 'Panda' })).toThrow('isolated rehearsal');
+  });
+  it('refuses a remote or ambiguous cached feed before opening an app', () => {
+    const config = rehearsalConfig({ endpoint: 'http://127.0.0.1:4321/latest.json', storeId });
+    config.plugins.updater.endpoints = ['https://github.com/example/latest.json'];
+    expect(() => cachedRehearsalIdentity(config)).toThrow('loopback');
+    config.plugins.updater.endpoints = ['http://127.0.0.1:4321/latest.json', 'http://127.0.0.1:4322/latest.json'];
+    expect(() => cachedRehearsalIdentity(config)).toThrow('isolated rehearsal');
   });
   it('serves failure modes and never uses GitHub for archives', () => {
     expect(rehearsalFeed('offline')).toMatchObject({ status: 503 });

@@ -249,13 +249,14 @@ launch, or update the existing Panda app.
 
 ### Local installed-app upgrade rehearsal
 
-Acceptance status (2026-11-21): both signed test versions build, and the
-profile, selected chat, transcript document and exact draft survive a real
-WKWebView reload. The rendered-transcript gate still fails: the test window
-reports `visibility: hidden` and no focus, including after LaunchServices
-launch. The normal stdio replay regression passes. Feed-failure cases,
-installation and post-update restart have not been reached in this native
-rehearsal. The harness does not skip that gate; milestone 4 is incomplete.
+Acceptance status (2026-11-21): the local signed `0.0.1 → 0.0.2` install and
+native restart passed. The same profile, chat, rendered transcript and exact
+multiline draft survived. Unavailable/malformed feeds, tampered archives,
+wrong-key signatures, interrupted downloads, active-work guards and downgrade
+refusal passed. Pre-upgrade agent children exited, the installed executable
+matched the signed replacement, and its Apple signature verified. This
+completes the local milestone 4 rehearsal; published-feed acceptance remains
+deferred during the GitHub freeze.
 
 On Apple Silicon macOS 14 or newer, run the following from the repo root
 with the existing updater signing key. It launches a separate **Panda
@@ -307,6 +308,28 @@ through the native window builder instead.
 Background throttling is disabled in the test window so WKWebView continues
 running the acceptance driver while another app is in front. The app is
 opened through macOS LaunchServices, matching its normal launch/restart path.
+
+If launching from an automation session leaves the view hidden, add
+`--manual-launch`. The runner prints **FEED READY** after preparing the apps
+and starting the local feed. Open the printed app path from your Terminal
+and keep the window visible; the runner waits up to ten minutes. The rendered
+transcript and draft checks remain required. No production window settings
+change to accommodate the test host.
+
+An existing original `0.0.1` test installation can resume without rebuilding
+or reading the private release key:
+
+```sh
+pnpm desktop:rehearse-updater --resume /private/tmp/panda-updater-rehearsal-XXXXXX --manual-launch
+```
+
+Resume validates the private run directory, isolated bundle identity, key and
+loopback endpoint, and verifies the cached archive with the independent
+verifier. It preserves the WebKit UUID and previous evidence, stops only
+processes whose command belongs to that run directory, and starts the same
+feed port before the manual launch. The original trusted signature is never
+overwritten when preparing the wrong-key test. A completed `0.0.2` installation
+requires a fresh run for another upgrade rehearsal.
 
 `pnpm exec vitest run scripts/updater-rehearsal.test.mjs` covers isolation
 and evidence checks without building or launching any app. The real
