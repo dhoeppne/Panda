@@ -128,12 +128,26 @@ jobs:
         env:
           TAG: ${{ steps.plan.outputs.tag }}
           VERSION: ${{ steps.plan.outputs.version }}
-        run: >-
-          docker build
-          --build-arg "PANDA_VERSION=$VERSION"
-          --build-arg "VCS_REF=$GITHUB_SHA"
-          --tag "panda:$TAG"
-          .
+        run: |
+          set -euo pipefail
+          # Each job VM shares the host's public IP with every other job, and
+          # Docker Hub refuses an anonymous pull from an IP that reached its
+          # limit. The build pulls the base image, so the retry belongs around
+          # the build. The plain progress keeps the pull error in the log.
+          for attempt in 1 2 3; do
+            if docker build \
+              --progress=plain \
+              --build-arg "PANDA_VERSION=$VERSION" \
+              --build-arg "VCS_REF=$GITHUB_SHA" \
+              --tag "panda:$TAG" \
+              .; then
+              exit 0
+            fi
+            echo "the image build failed on attempt $attempt"
+            sleep 60
+          done
+          echo "::error::the image build failed three times"
+          exit 1
 
       - name: Smoke-test container
         if: steps.plan.outputs.build == 'true'
