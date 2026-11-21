@@ -21,6 +21,11 @@ For implementers of any ACP agent that should work well with Panda: which interf
 
 ## 0. Overview
 
+Opt-in desktop notifications observe successful `session/prompt` responses
+(`end_turn`) and permission requests still waiting for the user. History
+replay and automatically resolved permissions do not generate alerts.
+This adds no ACP methods and a notification never approves a request.
+
 The minimal surface to integrate:
 
 | Direction | Method | Level |

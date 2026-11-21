@@ -40,6 +40,10 @@ import { t } from '../i18n';
 import { useI18n } from '../i18n/context';
 import { notifyUser } from '../userNotice';
 import { copyDiagnosticsReport } from './ErrorBoundary';
+import {
+  desktopNotificationsAvailable, notificationsEnabled, setNotificationsEnabled,
+  subscribeNotificationPreference, testDesktopNotification,
+} from '../desktopNotifications';
 import './SettingsPage.css';
 
 /** The settings page's sections (#117) — the single source shared by the
@@ -173,7 +177,44 @@ function GeneralSection() {
         <FontSizeStepper knob="code" />
       </SettingsRow>
       <SyncStatusRow />
+      {desktopNotificationsAvailable() && <NotificationSettingsRow />}
     </section>
+  );
+}
+
+function NotificationSettingsRow() {
+  const { t } = useI18n();
+  const [enabled, setEnabled] = useState(() => notificationsEnabled());
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<'sent' | 'failed' | null>(null);
+  useEffect(() => subscribeNotificationPreference(setEnabled), []);
+  const toggle = () => {
+    setBusy(true);
+    setResult(null);
+    void setNotificationsEnabled(!enabled).then((ok) => {
+      if (!ok) setResult('failed');
+    }).catch(() => setResult('failed')).finally(() => setBusy(false));
+  };
+  const test = () => {
+    setBusy(true);
+    setResult(null);
+    void testDesktopNotification().then(() => setResult('sent'))
+      .catch(() => setResult('failed')).finally(() => setBusy(false));
+  };
+  return (
+    <>
+      <SettingsRow title={t('notifications.title')} description={t('notifications.description')}>
+        <Button variant="secondary" size="sm" isDisabled={busy}
+          label={t(enabled ? 'notifications.disable' : 'notifications.enable')} clickAction={toggle} />
+      </SettingsRow>
+      {enabled && (
+        <SettingsRow title={t('notifications.enabled')} description={t('notifications.help')}>
+          <Button variant="secondary" size="sm" isDisabled={busy}
+            label={t('notifications.test')} clickAction={test} />
+        </SettingsRow>
+      )}
+      {result && <p className="settings-card-desc" role="status">{t(`notifications.${result}`)}</p>}
+    </>
   );
 }
 

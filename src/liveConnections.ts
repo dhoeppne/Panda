@@ -15,7 +15,7 @@ import type {
 } from './protocol/types';
 import { connectionStorePort, usePanda, type ConnectionStorePort, type SessionEntry, type SessionSwitchSnapshot } from './store';
 import { connectionLifecycle } from './projector/connectionLifecycle';
-import { connectionOfNamespace, extraConnectionId, profileIdOfConnection, type ChatId } from './chatId';
+import { connectionOfNamespace, extraConnectionId, namespaceOfConnection, profileIdOfConnection, type ChatId } from './chatId';
 import {
   canonicalArgs,
   liveTargetEndpoint,
@@ -33,6 +33,7 @@ import { cwdToWorkspace, workspaceToCwd, type Workspace } from './workspace';
 import { alwaysAskPolicy, type PermissionDecision, type PermissionPolicy } from './policy';
 import { notifyUser } from './userNotice';
 import { randomUuid } from './uuid';
+import { publishChatAttention } from './desktopNotifications';
 import { stableComposerDraftKey, useComposerDrafts } from './composerDrafts';
 
 /**
@@ -428,6 +429,13 @@ function wireHandlers(entry: LiveConnection) {
     port.update(update);
   };
   return {
+    onAttention: (event: import('./desktopNotifications').ClientAttention) => publishChatAttention({
+      ...event,
+      id: `${connectionId}:${event.id}`,
+      chat: { namespace: namespaceOfConnection(connectionId, loadProfiles()), sessionId: event.sessionId },
+      isCurrent: () => liveConnections.get(connectionId) === entry && event.isCurrent() &&
+        usePanda.getState().connections[connectionId]?.docs[event.sessionId] !== undefined,
+    }),
     onUpdate: writeUpdate,
     onConnected: (info: { agentName: string; protocolVersion: number }) => {
       entry.established = true;

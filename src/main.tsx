@@ -31,7 +31,7 @@ applyFontSize(loadFontSizePair());
 if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
   // Restore/connect only after the native transport factories are ready.
   const { bootDesktop } = await import('./desktop/boot');
-  bootDesktop();
+  await bootDesktop();
 }
 
 // Settings sync (server/README.md): the first pull runs before the first

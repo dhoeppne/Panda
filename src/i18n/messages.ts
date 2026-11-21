@@ -14,6 +14,18 @@
  * Interpolation: `{name}` placeholders, filled by t(key, { name: value }).
  */
 export const messages = {
+  'notifications.title': { en: 'Desktop notifications', zh: '桌面通知' },
+  'notifications.description': { en: 'Notify when an agent finishes or needs approval while Panda is running.', zh: 'Panda 运行时，在 agent 完成任务或需要批准时通知。' },
+  'notifications.enable': { en: 'Enable notifications', zh: '启用通知' },
+  'notifications.disable': { en: 'Disable notifications', zh: '关闭通知' },
+  'notifications.enabled': { en: 'Notifications enabled', zh: '通知已启用' },
+  'notifications.help': { en: 'If no alert appears, allow Panda in macOS System Settings → Notifications and check Focus. Click an agent notification to open its chat.', zh: '如果没有显示通知，请在 macOS 系统设置 → 通知中允许 Panda，并检查专注模式。点击 agent 通知可打开对应会话。' },
+  'notifications.test': { en: 'Test notification', zh: '测试通知' },
+  'notifications.sent': { en: 'Test notification requested. Check your desktop notifications.', zh: '已请求发送测试通知，请检查桌面通知。' },
+  'notifications.failed': { en: 'Could not enable or request notifications. Check your system notification settings.', zh: '无法启用或请求通知，请检查系统通知设置。' },
+  'notifications.body.completed': { en: 'Agent finished. Open Panda to view the chat.', zh: 'Agent 已完成。打开 Panda 查看会话。' },
+  'notifications.body.approval': { en: 'Approval needed. Open Panda to review the request.', zh: '需要批准。打开 Panda 查看请求。' },
+  'notifications.body.test': { en: 'Test notification from Panda.', zh: '来自 Panda 的测试通知。' },
   // ---- shell / app frame ----
   'app.closeNav': { en: 'Close navigation', zh: '关闭导航' },
   'app.openNav': { en: 'Open navigation', zh: '打开导航' },
