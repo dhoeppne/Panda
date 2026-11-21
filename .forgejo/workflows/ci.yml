@@ -62,8 +62,10 @@ jobs:
 
       # workspace 安装后 test-agent/node_modules 存在,deepagents WebSocket e2e
       # 自动启用;CI 无 .env,确定性剧本模型,无真实模型调用
-      - run: pnpm test
-      - run: pnpm --filter panda-test-agent test
+      # Serialize files on the small VM: Git/fsync fixtures must not starve
+      # cold Node/deepagents child processes used by the ACP integration tests.
+      - run: pnpm test --maxWorkers=1
+      - run: pnpm --filter panda-test-agent test --maxWorkers=1
 
   # Arcane deploys main as soon as main moves, so the image must be proven
   # before the merge. This job builds the image from the tree and smoke-tests

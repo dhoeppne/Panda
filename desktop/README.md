@@ -102,11 +102,50 @@ and after disconnect no processes remain.
 
 ## Artifacts & CI
 
-[`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) builds
-on manual dispatch and on `v*` tags: `Panda_<ver>_aarch64.dmg`,
-`Panda_<ver>_x64-setup.exe`, `Panda_<ver>_x64-portable.zip` (the bare
-`--no-bundle` exe). Tag builds attach everything to a GitHub Release.
-Artifacts are unsigned by decision — see ADR 0007.
+[`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) is a
+manual artifact build. Supply an existing stable `panda-vX.Y.Z` tag in
+`release_tag`. The workflow resolves the full tag ref to a commit, checks
+out that exact commit, and rejects changed tags or dirty source. It retains
+the release helper outside the checkout so older tags can be built using
+the current release tooling.
+
+The tag determines the UI and native app version, through `PANDA_VERSION`
+and a generated Tauri config overlay. Source package/Cargo/config versions
+are not edited. macOS also embeds `PandaReleaseTag` and `PandaSourceCommit`
+in the app's Info.plist. Before collecting artifacts, verification checks
+both native version fields, bundle identity, the embedded tag/commit, an
+ARM64 executable and the version in the built frontend. Windows checks the
+executable product version; Windows execution still needs a Windows runner.
+
+Outputs are `Panda_<ver>_aarch64.dmg`, `Panda_<ver>_x64-setup.exe`,
+`Panda_<ver>_x64-portable.zip` and a platform-specific release JSON recording
+the source tag, commit, version and executable SHA-256. They are uploaded as
+workflow artifacts named `panda-desktop-<ver>-<OS>`.
+
+This foundation has read-only repository permissions and does not publish
+GitHub Releases. Signing, updater archives and update-feed publication are
+the next milestone. Builds retain the existing unsigned/ad-hoc distribution
+behavior; see ADR 0007.
+
+### Local verification without GitHub
+
+Use a clean checkout of the selected tag. Put generated files outside the
+checkout; keep the path for all commands below:
+
+```sh
+release_dir=$(mktemp -d /private/tmp/panda-desktop-release.XXXXXX)
+node /path/to/current/scripts/desktop-release.mjs plan panda-vX.Y.Z "$release_dir"
+node "$release_dir/release-tool.mjs" check "$release_dir"
+PANDA_VERSION=X.Y.Z pnpm desktop:build --bundles app --config "$release_dir/tauri.release.json"
+node "$release_dir/release-tool.mjs" verify-macos "$release_dir"
+```
+
+Planning resolves local tags only. These commands neither fetch from nor
+write to GitHub, and do not install or launch the app. A local `--bundles app`
+check verifies the app bundle; the workflow additionally packages its DMG.
+Do not label a dirty development checkout as a tagged release: the source
+check intentionally refuses it. The current helper can be invoked by an
+absolute path while working in an older clean tag checkout.
 
 ## Restart recovery
 
