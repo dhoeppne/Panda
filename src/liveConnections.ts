@@ -1254,7 +1254,8 @@ export function openLiveSession(connectionId: string, sessionId: string, cwd: st
  *
  * Resolves true once the connection holds the session.
  */
-export async function openChatRoute(id: ChatId): Promise<boolean> {
+export async function openChatRoute(id: ChatId, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return false;
   const profiles = loadProfiles();
   const known = Object.keys(usePanda.getState().connections);
   const owner = connectionOfNamespace(id.namespace, profiles, known);
@@ -1267,7 +1268,14 @@ export async function openChatRoute(id: ChatId): Promise<boolean> {
     (connectionId) => usePanda.getState().connections[connectionId]?.connection.sessionId === id.sessionId,
   );
   const connectionId = holder ?? owner;
-  if (!(await ensureConnected(connectionId))) {
+  const connected = await ensureConnected(connectionId);
+  // The user may have selected another route while this family connected.
+  if (signal?.aborted) return false;
+  if (!connected) {
+    if (usePanda.getState().connections[connectionId]?.connection.status === 'auth_required') {
+      foregroundConnection(connectionId);
+      return false;
+    }
     console.warn(`[panda/acp] chat route refused: the family "${id.namespace}" did not come up`);
     notifyUser('error', t('live.notice.chatUnavailable'));
     return false;
@@ -1281,7 +1289,7 @@ export async function openChatRoute(id: ChatId): Promise<boolean> {
     return false;
   }
   await openLiveSession(connectionId, id.sessionId, entry.cwd);
-  return usePanda.getState().connections[connectionId]?.connection.sessionId === id.sessionId;
+  return !signal?.aborted && usePanda.getState().connections[connectionId]?.connection.sessionId === id.sessionId;
 }
 
 /**
@@ -1291,6 +1299,7 @@ export async function openChatRoute(id: ChatId): Promise<boolean> {
 async function ensureConnected(connectionId: string): Promise<boolean> {
   const state = usePanda.getState();
   if (state.connections[connectionId]?.connection.status === 'connected') return true;
+  if (state.connections[connectionId]?.connection.status === 'auth_required') return false;
   const inFlight = connecting.get(connectionId);
   if (inFlight) {
     await inFlight;

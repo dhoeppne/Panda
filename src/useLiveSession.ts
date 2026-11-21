@@ -121,7 +121,7 @@ export interface LiveSessionFacade extends ForegroundSessionController {
   /** Opens the chat a route names (ADR 0010): the family connects, then the
    * session is loaded on it. The route is the one truth: every move to a
    * chat is a route, and the route opens it. */
-  openChatRoute: (id: ChatId) => Promise<boolean>;
+  openChatRoute: (id: ChatId, signal?: AbortSignal) => Promise<boolean>;
   cancel: typeof cancelLiveTurn;
   /** Creates a session; the optional id names the target connection (the
    * row the user clicked), foreground follows it (bug hunt #5). */

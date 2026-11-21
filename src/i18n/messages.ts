@@ -649,6 +649,11 @@ export const messages = {
 
   // ---- session loading (the column while a session switch replays) ----
   'session.loading': { en: 'Loading session…', zh: '正在加载会话…' },
+  'session.openFailedTitle': { en: 'Chat unavailable', zh: '会话不可用' },
+  'session.openFailed': {
+    en: 'Could not open this chat. Check the agent connection, then try again or choose another chat.',
+    zh: '无法打开此会话。请检查 agent 连接后重试，或选择其他会话。',
+  },
 
   // ---- live connection driver ----
   'live.switchFailedTitled': {
