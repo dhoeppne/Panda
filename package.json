@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "desktop:dev": "pnpm --filter panda-desktop dev",
     "desktop:build": "pnpm --filter panda-desktop build",
+    "desktop:rehearse-updater": "node scripts/updater-rehearsal.mjs",
     "postinstall": "node scripts/sync-material-icons.mjs"
   },
   "dependencies": {

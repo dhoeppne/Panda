@@ -205,7 +205,7 @@ signer tests run when the independent verifier is built (or
 ## In-app updates
 
 Installed Apple Silicon macOS release builds show **Settings → General →
-App updates**. Development builds, other platforms, and the browser omit
+Panda updates**. Development builds, other platforms, and the browser omit
 these controls. The native package version is displayed independently of
 the frontend's fallback version.
 
@@ -246,6 +246,94 @@ These cover the controller, native adapter, draft persistence, work locks,
 permissions and process cleanup. They do not replace a real installed-app
 upgrade rehearsal against published assets. A local build does not install,
 launch, or update the existing Panda app.
+
+### Local installed-app upgrade rehearsal
+
+Acceptance status (2026-11-21): the local signed `0.0.1 → 0.0.2` install and
+native restart passed. The same profile, chat, rendered transcript and exact
+multiline draft survived. Unavailable/malformed feeds, tampered archives,
+wrong-key signatures, interrupted downloads, active-work guards and downgrade
+refusal passed. Pre-upgrade agent children exited, the installed executable
+matched the signed replacement, and its Apple signature verified. This
+completes the local milestone 4 rehearsal; published-feed acceptance remains
+a separate check against the first published Forgejo release.
+
+On Apple Silicon macOS 14 or newer, run the following from the repo root
+with the existing updater signing key. It launches a separate **Panda
+Updater Rehearsal** window, bringing it forward for rendering checks. With a warm Cargo
+cache, allow 4–6 minutes for the two builds and rehearsal:
+
+```sh
+pnpm desktop:rehearse-updater --run --key /absolute/path/to/existing/signing.key
+```
+
+1. The runner exports the current local commit into a private temporary
+   directory. It builds test versions `0.0.2` and `0.0.1`, signs their
+   updater archives with the existing key, and keeps a recovery copy of
+   `0.0.1`. These are test builds, not tagged releases. No tags, remote forge
+   requests, release assets, repository secrets or personal app files change.
+2. A unique bundle identifier and WebKit data-store UUID isolate the test's
+   profile, preferences, selected chat and draft. A temporary-only entry
+   drives the normal mounted app, native host, updater controller and restart
+   command. A deterministic local stdio ACP fixture retains the transcript.
+   The runner reuses the ignored Cargo cache; it does not need an AI model.
+3. An ephemeral `127.0.0.1` server supplies no-update, unavailable, malformed,
+   tampered, wrong-signing-key and interrupted-download cases. Rejected
+   archives must leave the installed test executable unchanged. The driver
+   also checks running prompts, paused queues and draft attachments before
+   allowing a successful signed install and real process restart.
+4. The restarted version must reopen the same chat, render its replayed
+   transcript and exact multiline draft, and refuse an older feed version.
+   The runner verifies the upgraded bundle's version, executable hash and
+   Apple signature, checks that pre-upgrade agent children exited, and
+   verifies the retained recovery copy. It then stops only this run's test
+   processes and closes its server.
+5. The printed `/private/tmp/panda-updater-rehearsal-*/report.json` records
+   source commit, test identity, hashes, steps and feed requests. Logs and
+   artifacts remain there for review. The retained recovery bundle is
+   verified but is not automatically reinstalled or launched. Forgejo's
+   published feed and the personal app installation still need a later
+   acceptance pass against an actual published Forgejo release.
+
+Failures also write `report.json` with `passed: false`, the failing gate and
+completed events. Later steps must not be inferred from a partial run.
+
+The loopback HTTP exception, native WebKit setup workaround and driver are
+injected only into the exported temporary source/configuration. Ordinary
+builds keep the pinned HTTPS feed, committed key, main-window grants and
+normal entry point. The pinned Tauri code generator cannot currently emit
+the WebKit UUID config field correctly, so only the rehearsal copy sets it
+through the native window builder instead.
+
+Background throttling is disabled in the test window so WKWebView continues
+running the acceptance driver while another app is in front. The app is
+opened through macOS LaunchServices, matching its normal launch/restart path.
+
+If launching from an automation session leaves the view hidden, add
+`--manual-launch`. The runner prints **FEED READY** after preparing the apps
+and starting the local feed. Open the printed app path from your Terminal
+and keep the window visible; the runner waits up to ten minutes. The rendered
+transcript and draft checks remain required. No production window settings
+change to accommodate the test host.
+
+An existing original `0.0.1` test installation can resume without rebuilding
+or reading the private release key:
+
+```sh
+pnpm desktop:rehearse-updater --resume /private/tmp/panda-updater-rehearsal-XXXXXX --manual-launch
+```
+
+Resume validates the private run directory, isolated bundle identity, key and
+loopback endpoint, and verifies the cached archive with the independent
+verifier. It preserves the WebKit UUID and previous evidence, stops only
+processes whose command belongs to that run directory, and starts the same
+feed port before the manual launch. The original trusted signature is never
+overwritten when preparing the wrong-key test. A completed `0.0.2` installation
+requires a fresh run for another upgrade rehearsal.
+
+`pnpm exec vitest run scripts/updater-rehearsal.test.mjs` covers isolation
+and evidence checks without building or launching any app. The real
+rehearsal is explicitly opt-in and is not part of CI or `pnpm test`.
 
 ## Restart recovery
 
