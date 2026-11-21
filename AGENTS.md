@@ -15,8 +15,9 @@ Types: `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `chore`, `ci`,
 `test-agent`, `docs`. Only the subject line is constrained; body and footer
 stay free-form. Squash-merge records the PR number automatically. Not
 retroactive: history predating this section is left as-is.
-Enforcement: PR titles are linted in CI (`.github/workflows/pr-title.yml`,
-hand-rolled regex — keep its type/scope sets in sync with this section);
+Enforcement: PR titles are linted in CI (`.github/workflows/pr-title.yml`
+and its Forgejo copy `.forgejo/workflows/pr-title.yml`, hand-rolled regex —
+keep the type/scope sets of both in sync with this section);
 commit subjects on branches stay convention-only, no commitlint/husky.
 
 ### Domain docs
