@@ -57,11 +57,11 @@
   docker run --rm -p 8530:8530 panda
   ```
 
-  每次 `main` 构建成功后,CI 会先冒烟测试镜像,再创建下一个不可变的
-  `panda-vX.Y.Z` 标签,并把 `arcane` 部署分支推进到同一个提交。失败或已被
-  后续提交取代的构建不会改动这两个 ref。Arcane 2.17.2+ 可拉取该分支,开启
-  **Sync Files** 与 **Redeploy After Sync** 后,根目录的 `compose.yaml` 会在
-  部署前重新构建镜像。本 fork 的 `compose.yaml` 另带一个可选的设置存储,同一个
+  CI 在每个 pull request 上构建并冒烟测试此镜像,镜像有问题会在合并前失败。
+  `main` 的 push 通过测试与冒烟测试后,CI 在该提交上创建下一个不可变的
+  `panda-vX.Y.Z` 标签。该标签只是记录,不用于部署。Arcane 2.17.2+ 可拉取
+  `main`,开启 **Sync Files** 与 **Redeploy After Sync** 后,根目录的
+  `compose.yaml` 会在部署前重新构建镜像,因此每次合并都会部署。本 fork 的 `compose.yaml` 另带一个可选的设置存储,同一个
   Panda 地址在每台设备上显示相同的 agent 与偏好,见
   [server/README.md](server/README.md)(英文)。
 
