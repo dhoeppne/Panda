@@ -31,6 +31,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Notify;
 
 mod server_auth;
+mod websocket;
 
 /// One live agent child. The `Child` itself is owned exclusively by the exit
 /// watcher task (wait + terminate cannot share it); the table keeps only the

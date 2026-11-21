@@ -79,6 +79,24 @@ describe('native authenticated WebSocket transport', () => {
     expect(h.socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces a native heartbeat timeout once and ends the ACP stream', async () => {
+    const h = harness();
+    const stream = await h.transport.connect();
+    const reader = stream.readable.getReader();
+    await reader.read();
+    const error = vi.fn();
+    const close = vi.fn();
+    h.transport.onError(error);
+    h.transport.onClose(close);
+    h.receive({ type: 'close', code: 1006, error: 'The server connection stopped responding.' });
+    h.receive({ type: 'close', code: 1000 });
+    expect(await h.transport.closed).toBe(1006);
+    expect((await reader.read()).done).toBe(true);
+    expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'The server connection stopped responding.' }));
+    expect(close).not.toHaveBeenCalled();
+    await expect(stream.writable.getWriter().write({ jsonrpc: '2.0', id: 2, method: 'initialize' })).rejects.toThrow('Connection is closed');
+  });
+
   it('uses the native factory only when a host is registered', () => {
     expect(createWebSocketTransport('wss://example.com')).toBeInstanceOf(WebSocketTransport);
     const h = harness();

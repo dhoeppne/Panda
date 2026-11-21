@@ -27,6 +27,9 @@ tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 # SIGTERM-based graceful teardown; Windows terminates via Child::kill.
 libc = "0.2"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [profile.release]
 strip = true
 lto = true
