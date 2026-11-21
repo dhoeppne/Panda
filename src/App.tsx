@@ -208,9 +208,22 @@ function MainScreen() {
   const [routeRetry, setRouteRetry] = useState(0);
   const routeFailed = routeUnresolved && sameChat(routeChat, failedRoute);
   const routeFamilyId = routeChat ? profiles.find((profile) => profile.slug === routeChat.namespace)?.id : undefined;
-  const routeNeedsAuth = usePanda((s) =>
-    routeFamilyId ? s.connections[routeFamilyId]?.connection.status === 'auth_required' : false,
+  const routeConnectionStatus = usePanda((s) =>
+    routeFamilyId ? s.connections[routeFamilyId]?.connection.status ?? null : null,
   );
+  const routeNeedsAuth = routeConnectionStatus === 'auth_required';
+  const previousRouteConnection = useRef({ family: routeFamilyId, status: routeConnectionStatus });
+
+  useEffect(() => {
+    const previous = previousRouteConnection.current;
+    previousRouteConnection.current = { family: routeFamilyId, status: routeConnectionStatus };
+    // A failed restored chat opens automatically once its connection recovers.
+    // Only a readiness transition retries: a missing chat on an already
+    // connected family must not become a retry loop.
+    if (routeFailed && previous.family === routeFamilyId && previous.status !== 'connected' && routeConnectionStatus === 'connected') {
+      setRouteRetry((attempt) => attempt + 1);
+    }
+  }, [routeFamilyId, routeConnectionStatus, routeFailed]);
 
   useEffect(() => {
     // Temporary direct connections cannot be reopened after restarting.

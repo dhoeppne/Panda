@@ -253,6 +253,10 @@ type LiveConnection = {
   };
   /** True only after this connection era reached onConnected. */
   established: boolean;
+  /** User/startup intent survives failed dials, but not an explicit disconnect/logout. */
+  keepConnected: boolean;
+  /** A recovery signal during the first dial is consumed if that dial fails. */
+  recoveryPending: boolean;
 };
 
 const liveConnections = new Map<string, LiveConnection>();
@@ -316,6 +320,8 @@ function ensureEntry(connectionId: string): LiveConnection {
     lastTarget: null,
     autoReconnect: { active: false, attempt: 0, timer: null },
     established: false,
+    keepConnected: false,
+    recoveryPending: false,
   };
   const factory =
     clientFactories.get(connectionId) ??
@@ -395,6 +401,22 @@ function scheduleAutomaticReconnect(entry: LiveConnection): void {
   }, delay);
 }
 
+/** Rearm bounded retries after network/app recovery, without touching live links. */
+export function recoverFailedConnections(): void {
+  for (const entry of liveConnections.values()) {
+    const slot = usePanda.getState().connections[entry.connectionId];
+    if (!entry.keepConnected || entry.lastTarget?.kind !== 'websocket' || !slot) continue;
+    if (slot.connection.url !== liveTargetEndpoint(entry.lastTarget)) continue;
+    if (slot.connection.status === 'connecting') {
+      entry.recoveryPending = true;
+      continue;
+    }
+    if (slot.connection.status !== 'error' || entry.autoReconnect.active || entry.autoReconnect.timer !== null) continue;
+    entry.autoReconnect.attempt = 0;
+    scheduleAutomaticReconnect(entry);
+  }
+}
+
 function wireHandlers(entry: LiveConnection) {
   const { connectionId, port } = entry;
   const writeUpdate = (update: AcpSessionUpdate): void => {
@@ -409,6 +431,8 @@ function wireHandlers(entry: LiveConnection) {
     onUpdate: writeUpdate,
     onConnected: (info: { agentName: string; protocolVersion: number }) => {
       entry.established = true;
+      entry.keepConnected = true;
+      entry.recoveryPending = false;
       cancelAutomaticReconnect(entry);
       port.setConnection({
         status: 'connected',
@@ -443,7 +467,9 @@ function wireHandlers(entry: LiveConnection) {
     // "reconnect and resume"; a clean user disconnect clears it. Either way
     // a failed connect must not write its edits back into the profile.
     onDisconnected: (reason: string | null) => {
-      const shouldReconnect = reason !== null && (entry.established || entry.autoReconnect.active);
+      const shouldReconnect = entry.keepConnected && reason !== null && (entry.established || entry.autoReconnect.active || entry.recoveryPending);
+      entry.recoveryPending = false;
+      if (reason === null) entry.keepConnected = false;
       entry.established = false;
       entry.pendingProfile = null;
       // A closed connection can no longer settle a selection (issue #19):
@@ -461,6 +487,7 @@ function wireHandlers(entry: LiveConnection) {
     // v1 auth_required: the session waits for login; the auth card takes over
     // the main view until a method succeeds (or the failure settles).
     onAuthChallenge: (challenge: { methods: AcpAuthMethod[]; message: string }) => {
+      entry.recoveryPending = false;
       port.setConnection({
         status: 'auth_required',
         authMethods: challenge.methods,
@@ -477,6 +504,7 @@ function wireHandlers(entry: LiveConnection) {
     },
     // onConnected just nulled the record; a live era settles it right after.
     onAuthenticated: (methodId: string) => {
+      entry.keepConnected = true;
       port.setConnection({ authedMethodId: methodId });
     },
     onCapabilities: (caps: {
@@ -734,6 +762,8 @@ async function runConnect(
   if (origin === 'manual') {
     cancelAutomaticReconnect(entry);
     entry.established = false;
+    entry.keepConnected = true;
+    entry.recoveryPending = false;
   }
   const stdioFactory = normalizedTarget.kind === 'stdio' ? getStdioTransportFactory() : null;
   if (normalizedTarget.kind === 'stdio' && !stdioFactory) {
@@ -1017,6 +1047,8 @@ export function disconnectLiveConnection(connectionId: string): void {
   }
   cancelAutomaticReconnect(entry);
   entry.established = false;
+  entry.keepConnected = false;
+  entry.recoveryPending = false;
   entry.client.disconnect();
   if (isDirectConnectionId(connectionId)) {
     removeLiveConnection(connectionId);
@@ -1036,6 +1068,8 @@ export function removeLiveConnection(connectionId: string): void {
     // slot first, then closeConnection drops everything they wrote.
     cancelAutomaticReconnect(entry);
     entry.established = false;
+    entry.keepConnected = false;
+    entry.recoveryPending = false;
     entry.client.disconnect();
     liveConnections.delete(connectionId);
   }
@@ -1375,7 +1409,12 @@ export function authenticateLiveConnection(methodId: string): void {
 /** v1 `logout` on the foreground connection (gated by auth.logout). */
 export function logoutLiveConnection(): void {
   const entry = foregroundEntry('logout');
-  if (entry) void entry.client.logout();
+  if (entry) {
+    entry.keepConnected = false;
+    entry.recoveryPending = false;
+    cancelAutomaticReconnect(entry);
+    void entry.client.logout();
+  }
 }
 
 /**
