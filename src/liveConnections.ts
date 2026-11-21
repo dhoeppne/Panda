@@ -35,6 +35,7 @@ import { notifyUser } from './userNotice';
 import { randomUuid } from './uuid';
 import { publishChatAttention } from './desktopNotifications';
 import { stableComposerDraftKey, useComposerDrafts } from './composerDrafts';
+import { updaterWorkLocked } from './updateSafety';
 
 /**
  * Live connection manager (issue #21, ADR 0002): one `LiveAcpClient` + one
@@ -404,6 +405,7 @@ function scheduleAutomaticReconnect(entry: LiveConnection): void {
 
 /** Rearm bounded retries after network/app recovery, without touching live links. */
 export function recoverFailedConnections(): void {
+  if (updaterWorkLocked()) return;
   for (const entry of liveConnections.values()) {
     const slot = usePanda.getState().connections[entry.connectionId];
     if (!entry.keepConnected || entry.lastTarget?.kind !== 'websocket' || !slot) continue;
@@ -736,6 +738,11 @@ async function connectLiveConnectionInternal(
   opts: LiveConnectOptions | undefined,
   origin: 'manual' | 'automatic',
 ): Promise<void> {
+  if (updaterWorkLocked()) {
+    const entry = liveConnections.get(connectionId);
+    if (entry) cancelAutomaticReconnect(entry);
+    return;
+  }
   const run = runConnect(connectionId, target, workspace, opts, origin);
   connecting.set(connectionId, run);
   try {
@@ -1225,6 +1232,7 @@ function canTakeNewSession(connectionId: string): boolean {
  * reported on the connection).
  */
 export async function startChatSession(profile: AgentProfile): Promise<boolean> {
+  if (updaterWorkLocked()) return false;
   const cwd = workspaceToCwd(profile.workspace);
   // A connection that can take the session now serves it.
   for (const connectionId of familyConnectionIds(profile.id)) {
@@ -1264,6 +1272,7 @@ export async function startChatSession(profile: AgentProfile): Promise<boolean> 
  * the retained document directly (查看历史 without a protocol round-trip).
  */
 export function openLiveSession(connectionId: string, sessionId: string, cwd: string): Promise<void> {
+  if (updaterWorkLocked()) return Promise.resolve();
   const entry = liveConnections.get(connectionId);
   const slot = usePanda.getState().connections[connectionId];
   if (!entry || !slot) {
@@ -1297,6 +1306,7 @@ export function openLiveSession(connectionId: string, sessionId: string, cwd: st
  * Resolves true once the connection holds the session.
  */
 export async function openChatRoute(id: ChatId, signal?: AbortSignal): Promise<boolean> {
+  if (updaterWorkLocked()) return false;
   if (signal?.aborted) return false;
   const profiles = loadProfiles();
   const known = Object.keys(usePanda.getState().connections);
@@ -1367,6 +1377,7 @@ async function ensureConnected(connectionId: string): Promise<boolean> {
 
 /** Resolves the entry behind a foreground action, loudly tolerating "none". */
 function foregroundEntry(action: string): LiveConnection | null {
+  if (updaterWorkLocked()) return null;
   const connectionId = usePanda.getState().activeConnectionId;
   if (connectionId === null) {
     console.warn(`[panda/acp] ${action} ignored: no foreground connection`);
@@ -1471,6 +1482,7 @@ export function setLiveConfigOption(configId: string, value: string | boolean): 
 }
 
 export async function newLiveSession(cwd: string, connectionId?: string): Promise<void> {
+  if (updaterWorkLocked()) return;
   const trimmedCwd = cwd.trim();
   if (!trimmedCwd) {
     console.warn('[panda/acp] newSession ignored: cwd is required');

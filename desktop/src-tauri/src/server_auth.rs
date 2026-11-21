@@ -1,7 +1,7 @@
 //! Sign in with the app's website-data store, then use its cookies in a native
 //! WebSocket handshake. Cookie values never cross IPC or enter logs.
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -21,6 +21,7 @@ struct SocketEntry {
 pub struct SocketTable {
     next_id: AtomicU32,
     sockets: Mutex<HashMap<u32, SocketEntry>>,
+    pub(crate) shutting_down: AtomicBool,
 }
 
 #[derive(Clone, Serialize)]
@@ -30,7 +31,7 @@ pub enum SocketEvent {
     Close { code: u16, error: Option<String> },
 }
 
-fn local_main(window: &WebviewWindow) -> Result<(), String> {
+pub(crate) fn local_main(window: &WebviewWindow) -> Result<(), String> {
     let url = window
         .url()
         .map_err(|_| "Could not identify the app window.")?;
@@ -138,6 +139,9 @@ pub async fn websocket_connect(
     on_event: Channel<SocketEvent>,
 ) -> Result<u32, String> {
     local_main(&window)?;
+    if window.state::<SocketTable>().shutting_down.load(Ordering::SeqCst) {
+        return Err("Panda is preparing to restart.".into());
+    }
     let (socket_url, website) = endpoint(&url)?;
     let cookie_window = window.clone();
     let lookup = website.clone();
@@ -189,13 +193,13 @@ pub async fn websocket_connect(
     let id = table.next_id.fetch_add(1, Ordering::Relaxed);
     let (writes, pending) = mpsc::channel::<PendingWrite>(16);
     let close = Arc::new(Notify::new());
-    table.sockets.lock().unwrap().insert(
-        id,
-        SocketEntry {
-            writes,
-            close: close.clone(),
-        },
-    );
+    {
+        let mut sockets = table.sockets.lock().unwrap();
+        if table.shutting_down.load(Ordering::SeqCst) {
+            return Err("Panda is preparing to restart.".into());
+        }
+        sockets.insert(id, SocketEntry { writes, close: close.clone() });
+    }
     tauri::async_runtime::spawn(async move {
         let (code, error) = run_socket(&mut socket, pending, close, |event| {
             on_event.send(event).is_ok()

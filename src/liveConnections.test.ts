@@ -24,6 +24,7 @@ import {
   removeLiveConnection,
   restoreEndpointSessions,
   seedProfileSlots,
+  sendLive,
   startChatSession,
   sweepFailedDirectSlots,
   testLiveTarget,
@@ -45,6 +46,7 @@ import { loadProfiles, saveProfiles, type AgentProfile } from './profiles';
 import type { AcpTransport } from './acp/transport/AcpTransport';
 import { setStdioTransportFactory, type StdioAgentConfig } from './acp/transport/stdioHost';
 import { WORKSPACE_NONE_CWD, type Workspace } from './workspace';
+import { lockUpdaterWork } from './updateSafety';
 
 /**
  * Manager-level scenarios for issue #21: parallel connections, 断连隔离,
@@ -124,8 +126,28 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  lockUpdaterWork(false);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe('update installation work lock', () => {
+  it('blocks prompts, new sessions and connections until installation unlocks', async () => {
+    const stubs = installStubClients();
+    await connectedStub('agent-a', stubs, 's-a');
+    const client = stubs[0]!.client;
+    lockUpdaterWork(true);
+    await sendLive([{ type: 'text', text: 'wait' }]);
+    await newLiveSession('/agent-a');
+    await expect(startChatSession(profile('agent-b'))).resolves.toBe(false);
+    await connectLiveConnection('agent-b', { kind: 'websocket', url: 'ws://agent-b/acp' }, { kind: 'none' });
+    expect(client.send).not.toHaveBeenCalled();
+    expect(client.newSession).not.toHaveBeenCalled();
+    expect(stubs).toHaveLength(1);
+    lockUpdaterWork(false);
+    await sendLive([{ type: 'text', text: 'continue' }]);
+    expect(client.send).toHaveBeenCalledOnce();
+  });
 });
 
 describe('parallel connections (issue #21)', () => {

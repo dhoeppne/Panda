@@ -25,7 +25,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "nsis"],
+    "targets": [
+      "dmg",
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,6 +40,14 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGMUEwNUU5QUYyNzM3MkIKUldRck55ZXY2UVVhYnhrMCtMRktIRzQ1VndqWjdmU2t5a2hHY2JZN2VidmVtOEhFTHh1NnltaGwK",
+      "endpoints": [
+        "https://git.davidhoeppner.ca/la-creche/Panda/releases/download/latest/latest.json"
+      ]
     }
   }
 }

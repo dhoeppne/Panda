@@ -23,6 +23,9 @@ tauri-plugin-notification = "=2.8.1"
 futures-util = { version = "0.3", features = ["sink"] }
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-updater = "=2.14.1"
+
 [target.'cfg(unix)'.dependencies]
 # SIGTERM-based graceful teardown; Windows terminates via Child::kill.
 libc = "0.2"

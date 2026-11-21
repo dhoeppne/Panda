@@ -202,6 +202,51 @@ scripts/updater-release.test.mjs scripts/publish-updater.test.mjs`. The real
 signer tests run when the independent verifier is built (or
 `PANDA_UPDATER_VERIFY_BIN` names it); they never use the release private key.
 
+## In-app updates
+
+Installed Apple Silicon macOS release builds show **Settings → General →
+App updates**. Development builds, other platforms, and the browser omit
+these controls. The native package version is displayed independently of
+the frontend's fallback version.
+
+1. Startup checks the stable HTTPS feed once without waiting for the network
+   before opening chats. **Check for updates** retries manually; offline or
+   unavailable feeds report a Settings error and leave chats usable.
+2. An available version shows plain-text release notes and an explicit
+   **Install and restart** action. Nothing downloads or installs from the
+   startup check alone. Download progress is shown when the server supplies
+   a size; otherwise the progress indicator is indeterminate.
+3. Before download and again before installation, Panda requires all chats
+   to be idle, with no connection/session switch, pending approval, queued
+   message (including paused queues), attachment, or file read. Nonempty
+   text drafts must be saved and read back exactly; temporary direct-chat
+   drafts or unavailable storage block the update. Work arriving during a
+   download defers installation until another explicit click.
+4. Installation locks input, new prompts, session opens and automatic
+   reconnects. Tauri verifies the downloaded signature using the committed
+   public key. The app checks for new work again before restart. Native
+   restart closes sockets, blocks late spawns and waits up to five seconds
+   for local agent exit watchers, including any spawn already in progress.
+5. Download or installation errors unlock the UI and allow another check.
+   If restart is deferred or fails, **Restart Panda** retries without
+   reinstalling. Startup recovery then reopens the saved chat and text
+   drafts through the existing recovery paths.
+
+Only `src/desktop/boot.ts` imports the updater's Tauri API. The controller
+uses a mockable host with separate check, download, install and restart
+steps. The macOS-only capability grants those updater commands solely to
+the bundled main window; server sign-in windows receive no updater grants.
+The plugin's automatic restart is disabled in favor of the guarded native
+`desktop_update_restart` command.
+
+Local coverage: `pnpm exec vitest run src/desktopUpdater.test.ts
+src/updateSafety.test.ts src/desktop/boot.test.ts src/liveConnections.test.ts`
+and `cargo test --locked --manifest-path desktop/src-tauri/Cargo.toml`.
+These cover the controller, native adapter, draft persistence, work locks,
+permissions and process cleanup. They do not replace a real installed-app
+upgrade rehearsal against published assets. A local build does not install,
+launch, or update the existing Panda app.
+
 ## Restart recovery
 
 Panda remembers the last successfully opened chat on this device. A launch

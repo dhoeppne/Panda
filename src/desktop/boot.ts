@@ -2,6 +2,9 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { onAction, requestPermission } from '@tauri-apps/plugin-notification';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { check as checkForUpdate } from '@tauri-apps/plugin-updater';
+import { desktopUpdater } from '../desktopUpdater';
+import { updaterWorkLocked } from '../updateSafety';
 import { setDesktopNotificationHost, activateNotificationChat } from '../desktopNotifications';
 import { navigate, parseHash } from '../routes';
 import { t } from '../i18n';
@@ -140,7 +143,9 @@ export async function bootDesktop(): Promise<void> {
       if (action.actionId !== 'tap') return;
       void activateNotificationChat(action.notification?.extra, {
         show: () => window.show(), unminimize: () => window.unminimize(),
-        focus: () => window.setFocus(), navigate: (chat) => navigate({ kind: 'chat', ...chat }),
+        focus: () => window.setFocus(), navigate: (chat) => {
+          if (!updaterWorkLocked()) navigate({ kind: 'chat', ...chat });
+        },
       }).catch(() => console.warn('[panda/notifications] could not open the notification chat'));
     });
     let nextId = 1;
@@ -165,5 +170,37 @@ export async function bootDesktop(): Promise<void> {
   } catch {
     // Notification setup must not prevent chats or native connections from starting.
     console.warn('[panda/notifications] desktop notifications are unavailable');
+  }
+  try {
+    const info = await invoke<{ version: string; supported: boolean }>('desktop_updater_info');
+    if (info.supported) {
+      desktopUpdater.setHost({
+        version: info.version,
+        check: async () => {
+          const update = await checkForUpdate({ timeout: 10_000 });
+          if (!update) return null;
+          return {
+            version: update.version, notes: update.body ?? '',
+            download: async (report) => {
+              let downloaded = 0;
+              let total: number | undefined;
+              await update.download((event) => {
+                if (event.event === 'Started') { downloaded = 0; total = event.data.contentLength; }
+                if (event.event === 'Progress') downloaded += event.data.chunkLength;
+                report(downloaded, total);
+              }, { timeout: 60_000 });
+            },
+            install: () => update.install({ restartAfterInstall: false }),
+            close: () => update.close(),
+          };
+        },
+        restart: () => invoke<void>('desktop_update_restart'),
+      });
+      // Never hold chat boot on an HTTP request; quiet errors stay in Settings.
+      void desktopUpdater.check();
+      if (import.meta.hot) import.meta.hot.dispose(() => desktopUpdater.setHost(null));
+    }
+  } catch {
+    console.warn('[panda/updater] desktop updater is unavailable');
   }
 }
