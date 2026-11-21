@@ -1,21 +1,21 @@
 name: Desktop
 
-# Desktop shell artifacts (#127): macOS dmg + Windows NSIS installer and a
-# portable zip (the bare exe from `tauri build --no-bundle`). Manual runs on
-# dispatch; tag pushes additionally attach everything to a GitHub Release.
-# Artifacts are unsigned (a deliberate scope decision) — SmartScreen and
-# first-run Gatekeeper prompts are expected.
+# Build an explicitly selected immutable release source. This foundation
+# uploads workflow artifacts only; signed publishing is a later milestone.
 
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
+    inputs:
+      release_tag:
+        description: 'Existing stable release tag (panda-vX.Y.Z)'
+        required: true
+        type: string
 
 permissions:
-  contents: write # tag runs attach release assets
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.release_tag }}
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +28,29 @@ jobs:
           - os: windows-latest # NSIS setup.exe + portable exe zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Check out release tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the exact release tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: node scripts/desktop-release.mjs plan "$RELEASE_TAG" "$RUNNER_TEMP/panda-desktop-release"
+
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release source
+        shell: bash
+        run: node "$RUNNER_TEMP/panda-desktop-release/release-tool.mjs" check "$RUNNER_TEMP/panda-desktop-release"
 
       # 与 ci.yml 同一约束:仓库无 packageManager 字段,须显式指定版本
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
@@ -55,42 +77,57 @@ jobs:
           workspaces: desktop/src-tauri
 
       - name: Build bundled artifacts (dmg / NSIS)
-        run: pnpm desktop:build
+        shell: bash
+        env:
+          PANDA_VERSION: ${{ steps.release.outputs.version }}
+        run: pnpm desktop:build --config "$RUNNER_TEMP/panda-desktop-release/tauri.release.json"
 
       # Portable = the bare exe; Windows users who cannot run installers get
       # the same binary the NSIS package lays down, zipped.
       - name: Build portable exe (Windows)
         if: runner.os == 'Windows'
-        run: pnpm --filter panda-desktop exec tauri build --no-bundle
+        shell: bash
+        env:
+          PANDA_VERSION: ${{ steps.release.outputs.version }}
+        run: pnpm --filter panda-desktop exec tauri build --no-bundle --config "$RUNNER_TEMP/panda-desktop-release/tauri.release.json"
+
+      - name: Verify macOS app version, architecture and source
+        if: runner.os == 'macOS'
+        shell: bash
+        run: node "$RUNNER_TEMP/panda-desktop-release/release-tool.mjs" verify-macos "$RUNNER_TEMP/panda-desktop-release"
+
+      - name: Verify Windows executable version and source
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node "$RUNNER_TEMP/panda-desktop-release/release-tool.mjs" verify-windows "$RUNNER_TEMP/panda-desktop-release"
 
       - name: Collect artifacts (macOS)
         if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
-          VER=$(jq -r .version desktop/src-tauri/tauri.conf.json)
           DIR="$RUNNER_TEMP/artifacts"
           mkdir -p "$DIR"
-          mv "desktop/src-tauri/target/release/bundle/dmg/Panda_${VER}_aarch64.dmg" "$DIR/"
+          mv "desktop/src-tauri/target/release/bundle/dmg/Panda_${VERSION}_aarch64.dmg" "$DIR/"
+          cp "$RUNNER_TEMP/panda-desktop-release/release.json" "$DIR/Panda_${VERSION}_macos-release.json"
           echo "ARTIFACTS=$DIR" >> "$GITHUB_ENV"
 
       - name: Collect artifacts (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
-          $ver = (Get-Content desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $ver = $env:VERSION
           $dir = "$env:RUNNER_TEMP/artifacts"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Move-Item "desktop/src-tauri/target/release/bundle/nsis/Panda_${ver}_x64-setup.exe" $dir
           Compress-Archive -Path "desktop/src-tauri/target/release/panda-desktop.exe" -DestinationPath "$dir/Panda_${ver}_x64-portable.zip"
+          Copy-Item "$env:RUNNER_TEMP/panda-desktop-release/release.json" "$dir/Panda_${ver}_windows-release.json"
           "ARTIFACTS=$dir" >> $env:GITHUB_ENV
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: panda-desktop-${{ runner.os }}
+          name: panda-desktop-${{ steps.release.outputs.version }}-${{ runner.os }}
           path: ${{ env.ARTIFACTS }}/*
           if-no-files-found: error
-
-      - name: Attach release assets (tag builds)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
-        with:
-          files: ${{ env.ARTIFACTS }}/*
