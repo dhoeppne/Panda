@@ -119,8 +119,8 @@ never creates a replacement conversation. The previous chat's composer is
 hidden while the requested chat is opening or unavailable.
 
 The `panda.lastChat` storage key is device-local and is not part of settings
-sync. This restores selection, not offline transcripts or unsent drafts;
-history is still loaded from the agent. Desktop host capabilities finish
+sync. History is still loaded from the agent; text-draft recovery is
+described below. Desktop host capabilities finish
 initializing before startup restoration begins.
 
 ## Network and activation recovery
@@ -142,3 +142,21 @@ dial still has to succeed against the actual agent.
 This handles connections already reported as failed. It does not force a
 reset of an apparently connected socket or claim to detect every half-open
 socket after sleep. Verify physical macOS sleep/wake with the installed app.
+
+## Text draft recovery
+
+Unsent text in saved-family chats is saved on each text change on this
+device and restored when Panda restarts. The draft follows the stable
+family/session identity, including sessions opened on an extra connection.
+Live message queues and stream remounts keep their connection-specific keys.
+Each family's New chat view has its own draft, separate from existing chats.
+
+The versioned `panda.textDrafts` record is local only and excluded from
+settings sync. Only text is written: attachments, file contents, attachment
+errors and queued messages stay in memory. Temporary direct connections
+and unset-family placeholders are not persisted.
+
+Submitting/queuing a message or erasing its text clears the saved draft.
+Deleting a session clears its family's saved draft without removing a
+different family's draft with the same session id. Storage failures leave
+editing usable in memory; malformed saved records do not prevent startup.

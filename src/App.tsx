@@ -32,7 +32,7 @@ import {
   type DrawerDrag,
   type SwipeStart,
 } from './navSwipe';
-import { composerDraftKey, useComposerDrafts } from './composerDrafts';
+import { composerDraftKey, stableComposerDraftKey, newChatDraftKey as familyNewChatDraftKey, useComposerDrafts } from './composerDrafts';
 import { profileIdOfConnection, sameChat, type ChatId } from './chatId';
 import { beginChatRecovery, rememberChatSelection } from './chatRecovery';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
@@ -179,8 +179,7 @@ function MainScreen() {
   const { t } = useI18n();
   // Foreground session identity (bug hunts #15/#17): swaps with the
   // foreground — different connection, or a different session on it. The
-  // composer keys its draft store by it (a message composed for one agent is
-  // never sent to another), and the message stream is REMOUNTED on it (key):
+  // queue stays scoped to this live connection, and the message stream is REMOUNTED on it (key):
   // flat-item keys (`turn-1-0`…) are identical across sessions, so without
   // the remount one session's expanded cards and scroll-follow mode would
   // leak into the next. Keyed by the UI POINTER, not the connection's settled
@@ -188,6 +187,8 @@ function MainScreen() {
   // anchor is null while the pointer moves between retained documents), and
   // an anchor-keyed key would collapse every offline view onto one bucket.
   const foregroundSessionKey = composerDraftKey(activeConnectionId ?? 'none', activeSessionId);
+  // Text drafts use the family identity so extra connection ids can change on restart.
+  const foregroundDraftKey = stableComposerDraftKey(activeConnectionId ?? 'none', activeSessionId);
 
   const profiles = useProfiles();
 
@@ -240,7 +241,7 @@ function MainScreen() {
   const showNewChat =
     !onSettings && newChatFamily !== null && (newChatOpen || (view === 'onboarding' && !routeUnresolved));
   const [starting, setStarting] = useState(false);
-  const newChatDraftKey = composerDraftKey('new-chat', null);
+  const newChatDraftKey = familyNewChatDraftKey(newChatFamily?.id ?? 'none');
   // An extra connection of a family carries the family's id behind a '#', so
   // the foreground family is the owner of the foreground connection.
   const foregroundOwner =
@@ -529,6 +530,7 @@ function MainScreen() {
               configOptions={doc.configOptions}
               onSetConfigOption={controller.setConfigOption}
               sessionKey={foregroundSessionKey}
+              draftKey={foregroundDraftKey}
               family={foregroundFamily && <FamilyLabel family={foregroundFamily} families={profiles} />}
             />
           </>
