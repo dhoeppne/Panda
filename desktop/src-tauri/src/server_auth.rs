@@ -5,16 +5,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use tauri::{ipc::Channel, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio::sync::{mpsc, oneshot, Notify};
-use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::header, Message};
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, http::header};
 
-struct PendingWrite {
-    data: String,
-    result: oneshot::Sender<Result<(), String>>,
-}
+use crate::websocket::{run_socket, PendingWrite};
 
 struct SocketEntry {
     writes: mpsc::Sender<PendingWrite>,
@@ -191,7 +187,7 @@ pub async fn websocket_connect(
     let app = window.app_handle().clone();
     let table = app.state::<SocketTable>();
     let id = table.next_id.fetch_add(1, Ordering::Relaxed);
-    let (writes, mut pending) = mpsc::channel::<PendingWrite>(16);
+    let (writes, pending) = mpsc::channel::<PendingWrite>(16);
     let close = Arc::new(Notify::new());
     table.sockets.lock().unwrap().insert(
         id,
@@ -201,37 +197,10 @@ pub async fn websocket_connect(
         },
     );
     tauri::async_runtime::spawn(async move {
-        let (code, error) = loop {
-            tokio::select! {
-                _ = close.notified() => {
-                    let _ = tokio::time::timeout(Duration::from_secs(2), socket.close(None)).await;
-                    break (1000, None);
-                }
-                write = pending.recv() => {
-                    let Some(write) = write else { break (1000, None); };
-                    let sent = tokio::time::timeout(Duration::from_secs(15), socket.send(Message::Text(write.data.into()))).await;
-                    let result = match sent {
-                        Ok(Ok(())) => Ok(()),
-                        _ => Err("The server connection stopped accepting messages.".to_string()),
-                    };
-                    let failed = result.is_err();
-                    let _ = write.result.send(result);
-                    if failed { break (1006, Some("The server connection was lost.".into())); }
-                }
-                incoming = socket.next() => match incoming {
-                    Some(Ok(Message::Text(text))) => {
-                        if on_event.send(SocketEvent::Text { data: text.to_string() }).is_err() {
-                            break (1000, None);
-                        }
-                    }
-                    Some(Ok(Message::Close(frame))) => break (frame.map(|frame| u16::from(frame.code)).unwrap_or(1000), None),
-                    Some(Ok(Message::Binary(_))) => break (1003, Some("The server sent a binary ACP message.".into())),
-                    Some(Ok(_)) => {} // tungstenite handles ping/pong protocol frames.
-                    Some(Err(_)) => break (1006, Some("The server connection was lost.".into())),
-                    None => break (1000, None),
-                }
-            }
-        };
+        let (code, error) = run_socket(&mut socket, pending, close, |event| {
+            on_event.send(event).is_ok()
+        })
+        .await;
         app.state::<SocketTable>()
             .sockets
             .lock()

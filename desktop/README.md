@@ -65,6 +65,9 @@ Verify with `cargo test --manifest-path desktop/src-tauri/Cargo.toml` and
   Tauri's `opener` plugin; only `http(s)`, `mailto:`, and `tel:` URLs are
   permitted by the default capability, and external web links use it to open
   the operating system's default handler instead of another webview window.
+- `src-tauri/src/server_auth.rs` owns server sign-in, cookie lookup and the
+  native socket registry. `src-tauri/src/websocket.rs` runs each connected
+  socket's I/O, liveness checks and clean shutdown.
 - `src-tauri/tauri.conf.json` — window/bundle config. `frontendDist` is
   resolved **relative to `src-tauri`**, so it must point at `../../dist`
   (the repo-root build output), and `devUrl` pins `127.0.0.1:5173`.
@@ -139,9 +142,24 @@ intentional disconnects/logouts, removed profiles, and local stdio commands
 are not restarted by these signals. Network-online is only a hint: every
 dial still has to succeed against the actual agent.
 
-This handles connections already reported as failed. It does not force a
-reset of an apparently connected socket or claim to detect every half-open
-socket after sleep. Verify physical macOS sleep/wake with the installed app.
+Native desktop WebSockets also check transport liveness: after 30 seconds,
+Panda sends a WebSocket Ping and waits up to 10 seconds after sending for a
+matching Pong. A missing reply or failed probe closes the socket as an
+unexpected failure, activating the same bounded reconnect path. These are
+WebSocket control frames, not ACP requests: an idle or long-running agent
+can stay connected without implementing a new method. Probes never resend
+a user prompt or approve a pending request.
+
+If a heartbeat deadline is at least 5 seconds late (for example after process
+suspension), Panda sends a fresh probe with a new payload and gives it a new
+10-second response window. An old Pong cannot satisfy the new probe. This
+avoids immediately resetting a healthy connection on wake. Native writes
+remain bounded to 15 seconds. Explicit disconnect/app shutdown stays clean
+and stops the checks; browser sockets and local stdio are unchanged.
+
+Verify physical macOS sleep/wake and a network blackhole with the installed
+app. The native tests simulate missed replies and delayed scheduling using
+paired in-memory WebSockets and a paused clock.
 
 ## Text draft recovery
 
