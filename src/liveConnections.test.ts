@@ -19,6 +19,8 @@ import {
   persistSessionsSnapshot,
   reconcileProfileSlots,
   reconnectLiveConnection,
+  recoverFailedConnections,
+  logoutLiveConnection,
   removeLiveConnection,
   restoreEndpointSessions,
   seedProfileSlots,
@@ -90,6 +92,7 @@ function installStubClients(): StubbedClient[] {
         send: vi.fn(async () => {}),
         resolvePermission: vi.fn(),
         cancel: vi.fn(),
+        logout: vi.fn(async () => {}),
       } as unknown as LiveAcpClient,
     };
     created.push(stub);
@@ -422,6 +425,166 @@ describe('bounded automatic reconnect (issue #252)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('network and activation recovery', () => {
+  it('remembers a recovery signal during an initial dial that subsequently fails', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      seedProfileSlots([profile('agent-a')], new MemoryStorage());
+      let finish!: () => void;
+      const pending = new Promise<void>((done) => { finish = done; });
+      vi.mocked(stubs[0]!.client.connect).mockImplementationOnce(async () => {
+        await pending;
+        stubs[0]!.handlers.onDisconnected('the initial dial failed');
+      });
+      const opening = connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, { kind: 'none' });
+      recoverFailedConnections();
+      recoverFailedConnections();
+      finish();
+      await opening;
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(2);
+      expect(stubs[0]!.client.newSession).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('retries an initial failure once a recovery signal arrives, coalescing repeated signals', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, { kind: 'none' });
+      stubs[0]!.handlers.onDisconnected('offline at launch');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(1);
+      recoverFailedConnections();
+      recoverFailedConnections();
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(2);
+      expect(stubs[0]!.client.newSession).not.toHaveBeenCalled();
+      // An in-flight dial is not replaced by another focus/online signal.
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('rearms an exhausted retry cycle and resumes the same session', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectedStub('agent-a', stubs, 's-a');
+      stubs[0]!.handlers.onDisconnected('offline');
+      for (const delay of [1_000, 2_000, 4_000, 8_000]) {
+        await vi.advanceTimersByTimeAsync(delay);
+        stubs[0]!.handlers.onDisconnected('still offline');
+      }
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(5);
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(6);
+      expect(stubs[0]!.client.connect).toHaveBeenLastCalledWith(expect.anything(), '/agent-a', { sessionId: 's-a' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('preserves deliberate disconnects, removed connections, and logouts', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectedStub('disconnected', stubs, 's-1');
+      disconnectLiveConnection('disconnected');
+      await connectedStub('removed', stubs, 's-2');
+      removeLiveConnection('removed');
+      await connectedStub('logged-out', stubs, 's-3');
+      logoutLiveConnection();
+      stubs[2]!.handlers.onDisconnected('connection ended after logout');
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(30_000);
+      for (const stub of stubs) expect(stub.client.connect).toHaveBeenCalledTimes(1);
+      expect(usePanda.getState().connections.removed).toBeUndefined();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not interrupt healthy connections or restart a sign-in flow', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectedStub('healthy', stubs, 's-1');
+      await connectedStub('auth', stubs, 's-2');
+      stubs[1]!.handlers.onAuthChallenge({ methods: [], message: 'Sign in' });
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(1);
+      expect(stubs[1]!.client.connect).toHaveBeenCalledTimes(1);
+      expect(usePanda.getState().connections.auth?.connection.status).toBe('auth_required');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('recovers a background family without stealing the foreground chat', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectLiveConnection('offline', { kind: 'websocket', url: 'ws://offline/acp' }, { kind: 'none' });
+      stubs[0]!.handlers.onDisconnected('offline');
+      await connectedStub('reading', stubs, 's-reading');
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(2);
+      expect(usePanda.getState().activeConnectionId).toBe('reading');
+      expect(usePanda.getState().activeSessionId).toBe('s-reading');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('cancels a rearmed retry when the user disconnects before it fires', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectLiveConnection('agent-a', { kind: 'websocket', url: 'ws://agent-a/acp' }, { kind: 'none' });
+      stubs[0]!.handlers.onDisconnected('offline');
+      recoverFailedConnections();
+      disconnectLiveConnection('agent-a');
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not fall back to an old WebSocket after a rejected stdio connection', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectedStub('agent-a', stubs, 's-a');
+      await connectLiveConnection('agent-a', { kind: 'stdio', command: 'agent', args: '' }, { kind: 'none' });
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not connect a profile that was only seeded and never requested', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      seedProfileSlots([profile('not-requested')], new MemoryStorage());
+      recoverFailedConnections();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stubs[0]!.client.connect).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('enables recovery again after the user successfully signs back in', async () => {
+    vi.useFakeTimers();
+    try {
+      const stubs = installStubClients();
+      await connectedStub('agent-a', stubs, 's-a');
+      logoutLiveConnection();
+      stubs[0]!.handlers.onAuthenticated('sign-in');
+      stubs[0]!.handlers.onDisconnected('network dropped');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(stubs[0]!.client.connect).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
 });
 

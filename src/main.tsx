@@ -13,6 +13,8 @@ import { bootSettingsSync } from './settingsSync';
 import { I18nProvider } from './i18n/context';
 import { navigate, parseDevPage } from './routes';
 import { startupChatRoute } from './chatRecovery';
+import { installConnectionRecovery } from './connectionRecovery';
+import { recoverFailedConnections } from './liveConnections';
 
 // Earliest possible (#105): the ring must catch startup errors too.
 installConsoleTap();
@@ -44,6 +46,9 @@ applyFontSize(loadFontSizePair());
 // after profiles have loaded, before rendering the first route.
 const savedChat = startupChatRoute(window.location.hash);
 if (savedChat) navigate(savedChat);
+
+const stopConnectionRecovery = installConnectionRecovery(recoverFailedConnections);
+if (import.meta.hot) import.meta.hot.dispose(stopConnectionRecovery);
 
 const root = createRoot(document.getElementById('root')!);
 

@@ -122,3 +122,23 @@ The `panda.lastChat` storage key is device-local and is not part of settings
 sync. This restores selection, not offline transcripts or unsent drafts;
 history is still loaded from the agent. Desktop host capabilities finish
 initializing before startup restoration begins.
+
+## Network and activation recovery
+
+Failed WebSocket connections get a fresh bounded retry cycle when the
+network comes online, Panda becomes visible/focused, or a delayed timer
+indicates the app resumed after a long pause. Signals coalesce while a
+retry or connection attempt is already active. Each cycle uses the existing
+1/2/4/8-second delays and then stops until another recovery signal or a
+manual retry. A failed initial connection can recover this way too.
+
+Recovery preserves the session id, workspace and foreground selection.
+If the restored chat was waiting on its failed connection, it opens again
+when that connection succeeds. Healthy connections, pending sign-in flows,
+intentional disconnects/logouts, removed profiles, and local stdio commands
+are not restarted by these signals. Network-online is only a hint: every
+dial still has to succeed against the actual agent.
+
+This handles connections already reported as failed. It does not force a
+reset of an apparently connected socket or claim to detect every half-open
+socket after sleep. Verify physical macOS sleep/wake with the installed app.
