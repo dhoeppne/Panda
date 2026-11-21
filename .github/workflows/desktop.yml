@@ -1,7 +1,8 @@
 name: Desktop
 
-# Build an explicitly selected immutable release source. This foundation
-# uploads workflow artifacts only; signed publishing is a later milestone.
+# Legacy GitHub artifact build; Forgejo ignores this directory. Native builds
+# on this forge run locally. Publication uses scripts/publish-updater.mjs and
+# the Forgejo API, never a GitHub token or release.
 
 on:
   workflow_dispatch:
@@ -41,6 +42,19 @@ jobs:
         shell: bash
         run: node scripts/desktop-release.mjs plan "$RELEASE_TAG" "$RUNNER_TEMP/panda-desktop-release"
 
+      - name: Preserve updater tooling (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          DIR="$RUNNER_TEMP/panda-desktop-release"
+          cp "$DIR/release-tool.mjs" "$DIR/desktop-release.mjs"
+          cp scripts/updater-release.mjs "$DIR/updater-release.mjs"
+          cp desktop/updater.pub "$DIR/updater.pub"
+          mkdir -p "$DIR/updater-verify/src"
+          cp desktop/updater-verify/Cargo.toml desktop/updater-verify/Cargo.lock "$DIR/updater-verify/"
+          cp desktop/updater-verify/src/main.rs "$DIR/updater-verify/src/"
+          node "$DIR/updater-release.mjs" configure "$DIR" "$DIR/updater.pub"
+
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -76,7 +90,27 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
+      - name: Build signature verifier (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cargo build --locked --release --manifest-path "$RUNNER_TEMP/panda-desktop-release/updater-verify/Cargo.toml"
+
+      - name: Build signed app and updater archive (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PANDA_VERSION: ${{ steps.release.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo 'Configure TAURI_SIGNING_PRIVATE_KEY before building signed updates.' >&2
+            exit 1
+          fi
+          pnpm desktop:build --bundles app,dmg --config "$RUNNER_TEMP/panda-desktop-release/tauri.release.json"
+
       - name: Build bundled artifacts (dmg / NSIS)
+        if: runner.os == 'Windows'
         shell: bash
         env:
           PANDA_VERSION: ${{ steps.release.outputs.version }}
@@ -96,6 +130,15 @@ jobs:
         shell: bash
         run: node "$RUNNER_TEMP/panda-desktop-release/release-tool.mjs" verify-macos "$RUNNER_TEMP/panda-desktop-release"
 
+      - name: Verify and assemble signed update (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          DIR="$RUNNER_TEMP/panda-desktop-release"
+          VERIFIER="$DIR/updater-verify/target/release/panda-updater-verify"
+          node "$DIR/updater-release.mjs" assemble "$DIR" "$VERIFIER"
+          node "$DIR/updater-release.mjs" check-tamper "$DIR" "$VERIFIER"
+
       - name: Verify Windows executable version and source
         if: runner.os == 'Windows'
         shell: bash
@@ -110,6 +153,7 @@ jobs:
           mkdir -p "$DIR"
           mv "desktop/src-tauri/target/release/bundle/dmg/Panda_${VERSION}_aarch64.dmg" "$DIR/"
           cp "$RUNNER_TEMP/panda-desktop-release/release.json" "$DIR/Panda_${VERSION}_macos-release.json"
+          cp "$RUNNER_TEMP/panda-desktop-release/signed/"* "$DIR/"
           echo "ARTIFACTS=$DIR" >> "$GITHUB_ENV"
 
       - name: Collect artifacts (Windows)

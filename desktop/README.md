@@ -102,50 +102,105 @@ and after disconnect no processes remain.
 
 ## Artifacts & CI
 
-[`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) is a
-manual artifact build. Supply an existing stable `panda-vX.Y.Z` tag in
-`release_tag`. The workflow resolves the full tag ref to a commit, checks
-out that exact commit, and rejects changed tags or dirty source. It retains
-the release helper outside the checkout so older tags can be built using
-the current release tooling.
+Forgejo runs [`.forgejo/workflows/ci.yml`](../.forgejo/workflows/ci.yml) for
+PR tests and container smoke tests. It also builds the independent signature
+verifier so the real signer/tampering tests run with throwaway keys. No
+private release key enters CI. The forge currently has Linux `ci-vm`
+runners; native macOS and Windows builds run locally. The historical
+[`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) remains
+an opt-in GitHub artifact build and is ignored by Forgejo.
 
-The tag determines the UI and native app version, through `PANDA_VERSION`
-and a generated Tauri config overlay. Source package/Cargo/config versions
-are not edited. macOS also embeds `PandaReleaseTag` and `PandaSourceCommit`
-in the app's Info.plist. Before collecting artifacts, verification checks
-both native version fields, bundle identity, the embedded tag/commit, an
-ARM64 executable and the version in the built frontend. Windows checks the
-executable product version; Windows execution still needs a Windows runner.
+Use an existing stable `panda-vX.Y.Z` tag. The helper resolves its full tag
+ref to a commit and rejects changed tags, another checkout, or dirty source.
+It can be retained outside the checkout to build an older tag using current
+release tooling. The generated overlay supplies the native version;
+`PANDA_VERSION` supplies the frontend version. Source version files do not
+change. macOS embeds `PandaReleaseTag` and `PandaSourceCommit` in Info.plist.
+Verification checks both native version fields, bundle identity, embedded
+provenance, an ARM64 executable and the frontend version.
 
-Outputs are `Panda_<ver>_aarch64.dmg`, `Panda_<ver>_x64-setup.exe`,
-`Panda_<ver>_x64-portable.zip` and a platform-specific release JSON recording
-the source tag, commit, version and executable SHA-256. They are uploaded as
-workflow artifacts named `panda-desktop-<ver>-<OS>`.
+### Local release build
 
-This foundation has read-only repository permissions and does not publish
-GitHub Releases. Signing, updater archives and update-feed publication are
-the next milestone. Builds retain the existing unsigned/ad-hoc distribution
-behavior; see ADR 0007.
-
-### Local verification without GitHub
-
-Use a clean checkout of the selected tag. Put generated files outside the
-checkout; keep the path for all commands below:
+These commands build artifacts without publishing or changing the installed
+app. Run from a clean checkout of the selected tag. Put generated files
+outside that checkout and retain the helper/plan directory:
 
 ```sh
 release_dir=$(mktemp -d /private/tmp/panda-desktop-release.XXXXXX)
 node /path/to/current/scripts/desktop-release.mjs plan panda-vX.Y.Z "$release_dir"
 node "$release_dir/release-tool.mjs" check "$release_dir"
-PANDA_VERSION=X.Y.Z pnpm desktop:build --bundles app --config "$release_dir/tauri.release.json"
-node "$release_dir/release-tool.mjs" verify-macos "$release_dir"
 ```
 
-Planning resolves local tags only. These commands neither fetch from nor
-write to GitHub, and do not install or launch the app. A local `--bundles app`
-check verifies the app bundle; the workflow additionally packages its DMG.
-Do not label a dirty development checkout as a tagged release: the source
-check intentionally refuses it. The current helper can be invoked by an
-absolute path while working in an older clean tag checkout.
+1. Preserve the current updater helper and its relative import before
+   switching to an older source checkout. Copy `scripts/updater-release.mjs`
+   to the plan directory and its `scripts/desktop-release.mjs` dependency
+   there too. Retain the current public key and independent verifier.
+2. Configure signing with `node /path/to/current/scripts/updater-release.mjs
+   configure "$release_dir" /path/to/current/desktop/updater.pub`. Keep the
+   existing private key outside the repo; use directory mode `0700` and file
+   mode `0600`. Back it up securely. Do not regenerate it for each release.
+3. Build on Apple Silicon macOS with the existing key supplied only to the
+   build command:
+
+   ```sh
+   PANDA_VERSION=X.Y.Z TAURI_SIGNING_PRIVATE_KEY=/private/path/signing.key \
+     pnpm desktop:build --bundles app,dmg --config "$release_dir/tauri.release.json"
+   node "$release_dir/release-tool.mjs" verify-macos "$release_dir"
+   ```
+
+4. Build the current verifier with `cargo build --locked --release
+   --manifest-path /path/to/current/desktop/updater-verify/Cargo.toml`, then
+   run the current updater helper's `assemble` and `check-tamper` commands,
+   each with the plan directory and verifier executable. Assembly checks
+   native archive metadata, the signature and checksums. The signed output
+   contains the DMG, `.app.tar.gz`, `.sig`, `latest.json` and a receipt.
+5. Run `publication-plan` with the plan directory to inspect the intended
+   assets without contacting the forge. Retain the previous installer for
+   manual recovery; a corrective automatic release uses a higher version.
+
+The updater signing key is independent of Apple code signing. This
+personal-use pipeline uses ad-hoc Apple signing and does not notarize the
+app. Windows retains its installer/portable artifacts; automatic updates
+currently support Apple Silicon macOS only.
+
+### Publish to Forgejo
+
+The native client checks
+`https://git.davidhoeppner.ca/la-creche/Panda/releases/download/latest/latest.json`.
+The manifest contains a version-specific HTTPS archive URL on that same
+forge and the signature contents. No app credential is needed for this
+public release feed.
+
+The opt-in publisher uses Forgejo's API. Supply its credential only to the
+publication command; never store it in a plan, receipt, log, URL or repo.
+For the existing Mac Keychain setup:
+
+```sh
+FORGEJO_TOKEN="$(security find-generic-password -s forgejo-api -w)" \
+PANDA_FORGEJO_API_URL=http://10.0.0.17:3500/api/v1 \
+PANDA_PUBLISH_RELEASE=true \
+  node /path/to/current/scripts/publish-updater.mjs "$release_dir" /path/to/panda-updater-verify
+```
+
+The public HTTPS API is the default; only that API and the explicitly
+configured internal forge API are accepted. The credential travels only in
+headers; authenticated asset downloads cannot redirect to another origin.
+The publisher verifies the remote tag's exact commit, refuses same/older
+versions and published-asset overwrites, and uploads into a hidden draft.
+A resumed draft may reuse only byte-identical expected assets. It downloads
+and re-verifies the complete asset set, then rechecks the tag and latest
+stable release before promotion. It verifies the public stable feed after
+promotion and hides its new release again if that check fails.
+
+Publication is serialized on this Mac with an exclusive temporary lock.
+Use one publishing host; cross-host concurrent publication is not supported.
+A failed command retains its draft for inspection and retry. No repository
+signing secret or GitHub credential is needed.
+
+Release-tool tests: `pnpm exec vitest run scripts/desktop-release.test.mjs
+scripts/updater-release.test.mjs scripts/publish-updater.test.mjs`. The real
+signer tests run when the independent verifier is built (or
+`PANDA_UPDATER_VERIFY_BIN` names it); they never use the release private key.
 
 ## Restart recovery
 

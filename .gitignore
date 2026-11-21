@@ -16,3 +16,4 @@ public/material-icons/
 # Tauri desktop shell
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+desktop/updater-verify/target/
