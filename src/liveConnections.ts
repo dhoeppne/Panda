@@ -33,7 +33,7 @@ import { cwdToWorkspace, workspaceToCwd, type Workspace } from './workspace';
 import { alwaysAskPolicy, type PermissionDecision, type PermissionPolicy } from './policy';
 import { notifyUser } from './userNotice';
 import { randomUuid } from './uuid';
-import { composerDraftKey, useComposerDrafts } from './composerDrafts';
+import { stableComposerDraftKey, useComposerDrafts } from './composerDrafts';
 
 /**
  * Live connection manager (issue #21, ADR 0002): one `LiveAcpClient` + one
@@ -1382,7 +1382,7 @@ export async function rewindLive(messageId: string, text: string): Promise<void>
   if (!entry) return;
   const sessionId = usePanda.getState().connections[entry.connectionId]?.connection.sessionId ?? null;
   if (!(await entry.client.rewindSession(messageId))) return;
-  useComposerDrafts.getState().setDraft(composerDraftKey(entry.connectionId, sessionId), { value: text });
+  useComposerDrafts.getState().setDraft(stableComposerDraftKey(entry.connectionId, sessionId), { value: text });
 }
 
 export async function sendLive(content: AcpUserContentBlock[]): Promise<void> {
