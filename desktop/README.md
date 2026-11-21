@@ -256,7 +256,7 @@ wrong-key signatures, interrupted downloads, active-work guards and downgrade
 refusal passed. Pre-upgrade agent children exited, the installed executable
 matched the signed replacement, and its Apple signature verified. This
 completes the local milestone 4 rehearsal; published-feed acceptance remains
-deferred during the GitHub freeze.
+a separate check against the first published Forgejo release.
 
 On Apple Silicon macOS 14 or newer, run the following from the repo root
 with the existing updater signing key. It launches a separate **Panda
@@ -270,7 +270,7 @@ pnpm desktop:rehearse-updater --run --key /absolute/path/to/existing/signing.key
 1. The runner exports the current local commit into a private temporary
    directory. It builds test versions `0.0.2` and `0.0.1`, signs their
    updater archives with the existing key, and keeps a recovery copy of
-   `0.0.1`. These are test builds, not tagged releases. No tags, GitHub
+   `0.0.1`. These are test builds, not tagged releases. No tags, remote forge
    requests, release assets, repository secrets or personal app files change.
 2. A unique bundle identifier and WebKit data-store UUID isolate the test's
    profile, preferences, selected chat and draft. A temporary-only entry
@@ -291,9 +291,9 @@ pnpm desktop:rehearse-updater --run --key /absolute/path/to/existing/signing.key
 5. The printed `/private/tmp/panda-updater-rehearsal-*/report.json` records
    source commit, test identity, hashes, steps and feed requests. Logs and
    artifacts remain there for review. The retained recovery bundle is
-   verified but is not automatically reinstalled or launched. GitHub's
+   verified but is not automatically reinstalled or launched. Forgejo's
    published feed and the personal app installation still need a later
-   acceptance pass after the repository freeze ends.
+   acceptance pass against an actual published Forgejo release.
 
 Failures also write `report.json` with `passed: false`, the failing gate and
 completed events. Later steps must not be inferred from a partial run.

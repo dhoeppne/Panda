@@ -119,7 +119,7 @@ export async function rehearse({ repo, key, resume, manualLaunch = false }) {
   repo = realpathSync(repo);
   if (!resume) key = realpathSync(key);
   const publicKey = readFileSync(join(repo, 'desktop/updater.pub'), 'utf8').trim();
-  // No GitHub requests, local tag creation, key rotation, or user-app installation.
+  // No remote forge requests, local tag creation, key rotation, or user-app installation.
   const runnerCommit = run('git', ['rev-parse', 'HEAD'], { cwd: repo }).trim();
   if (run('git', ['diff', 'HEAD', '--', 'src', 'desktop/src-tauri', 'desktop/updater.pub', 'vite.config.ts', 'pnpm-lock.yaml'], { cwd: repo }).trim()) {
     throw new Error('Commit application changes before rehearsing a reproducible snapshot.');
@@ -292,7 +292,7 @@ export async function rehearse({ repo, key, resume, manualLaunch = false }) {
         const report = { passed: true, commit, runnerCommit, resumed: Boolean(resume), identifier: config.identifier, webkitStoreId: storeId,
           from: '0.0.1', to: version, oldHash, newHash, preUpgradeAgentPids: preUpgradePids, events, requests,
           manualRecovery: { path: backup, verified: true, exercised: false },
-          limitations: ['Loopback feed; no GitHub publication/download rehearsal.', 'Distinct test bundle and WebKit store; personal installation not exercised.'] };
+          limitations: ['Loopback feed; no Forgejo publication/download rehearsal.', 'Distinct test bundle and WebKit store; personal installation not exercised.'] };
         writeJson(join(root, 'report.json'), report);
         console.log(`PASS: signed install, real restart, chat/draft recovery, failure containment and child cleanup.\nReport: ${root}/report.json`);
         return report;
