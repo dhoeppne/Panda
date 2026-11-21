@@ -1,17 +1,20 @@
 # The Forgejo copy of .github/workflows/ci.yml. Forgejo reads this directory
-# and ignores .github/workflows once it exists, so ci.yml, pr-title.yml,
-# deploy.yml and desktop.yml there run on GitHub only. desktop.yml needs
-# macOS and Windows runners and stays on GitHub.
+# and ignores .github/workflows once it exists. GitHub ignores .forgejo, so
+# the files in .github/workflows (ci.yml, pr-title.yml, deploy.yml and
+# desktop.yml) are for GitHub Actions only, and GitHub Actions is off on the
+# GitHub mirror of Panda. desktop.yml needs macOS and Windows runners, which
+# the forge does not have.
 #
-# Keep the workflow name `CI` and the job name `test`: Forgejo posts the
-# status `CI / test (pull_request)`, and the protection of main requires
-# that name.
+# Keep the workflow name `CI` and the job names `test` and `container`:
+# Forgejo posts the statuses `CI / test (pull_request)` and
+# `CI / container (pull_request)`, and the protection of main requires
+# those names.
 #
 # Each job runs on the label `ci-vm`: a fresh VM per job, destroyed after
 # the job. The steps run in the VM itself as the user `runner`, which is in
 # the `docker` group. The VM has Ubuntu 24.04, git, Docker and Node 24 in
 # /usr/local. No cache survives from one VM to the next, so no step restores
-# or saves a cache.
+# or saves a cache. No job reads a secret.
 #
 # Forgejo ignores `permissions:`. The key stays so the intent reads the same
 # as the GitHub copy.
@@ -62,24 +65,97 @@ jobs:
       - run: pnpm test
       - run: pnpm --filter panda-test-agent test
 
-  # Keep pull requests fast: the image is built only after main's full suite
-  # passes. A green image gets one immutable panda-vX.Y.Z tag, then advances
-  # the `arcane` deployment branch to that exact commit. A failed or
-  # superseded run changes neither ref.
-  #
-  # The job token pushes the tag and the branch. It can push to any branch
-  # that is not protected, and its pushes start no new workflow run. Keep
-  # `arcane` and the panda-v* tags out of any protection that refuses the
-  # job token.
-  container-release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+  # Arcane deploys main as soon as main moves, so the image must be proven
+  # before the merge. This job builds the image from the tree and smoke-tests
+  # it on each pull request, in parallel with `test`, and again on each push
+  # of main. The image is not published: it ends with the job's VM. Arcane
+  # builds its own image from the same Dockerfile through compose.yaml.
+  container:
     runs-on: ci-vm
     timeout-minutes: 20
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Arcane's compose build passes no PANDA_VERSION, so vite.config.ts
+      # falls back to the package.json version. This build passes that same
+      # version, so the app version in the image is the one Arcane deploys.
+      # VCS_REF lets the smoke test check the revision label.
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The VM starts with an empty Docker store, so each build pulls the
+      # base images and runs pnpm install again.
+      - name: Build container
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Each job VM shares the host's public IP with every other job, and
+          # Docker Hub refuses an anonymous pull from an IP that reached its
+          # limit. The build pulls the base image, so the retry belongs around
+          # the build. The plain progress keeps the pull error in the log.
+          for attempt in 1 2 3; do
+            if docker build \
+              --progress=plain \
+              --build-arg "PANDA_VERSION=$VERSION" \
+              --build-arg "VCS_REF=$GITHUB_SHA" \
+              --tag panda:ci \
+              .; then
+              exit 0
+            fi
+            echo "the image build failed on attempt $attempt"
+            sleep 60
+          done
+          echo "::error::the image build failed three times"
+          exit 1
+
+      - name: Smoke-test container
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          container="$(docker run --detach --rm panda:ci)"
+          trap 'docker stop "$container" >/dev/null' EXIT
+
+          for attempt in {1..20}; do
+            if [[ "$(docker exec "$container" wget -q -O - http://127.0.0.1:8530/healthz 2>/dev/null || true)" == "ok" ]]; then
+              break
+            fi
+            if [[ "$attempt" == 20 ]]; then
+              docker logs "$container"
+              echo "::error::container did not become healthy"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec "$container" wget -q -O /tmp/index.html http://127.0.0.1:8530/
+          docker exec "$container" test -s /tmp/index.html
+          docker exec "$container" grep -R -q -- "$VERSION" /usr/share/nginx/html/assets
+          test "$(docker image inspect --format '{{.Config.User}}' panda:ci)" = "101"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' panda:ci)" = "$VERSION"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' panda:ci)" = "$GITHUB_SHA"
+
+  # After the tests and the smoke test of a push of main pass, the commit gets
+  # one immutable panda-vX.Y.Z tag. The tag only records which main commits
+  # passed: nothing deploys from it. A failed or superseded run creates no
+  # tag. The job token pushes the tag, and its pushes start no new workflow
+  # run. The job token cannot push a protected tag, so keep the panda-v*
+  # tags out of any tag protection.
+  release-tag:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, container]
+    runs-on: ci-vm
+    timeout-minutes: 10
     permissions:
       contents: write
-    outputs:
-      tag: ${{ steps.plan.outputs.tag }}
     steps:
       - uses: https://code.forgejo.org/actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,7 +169,7 @@ jobs:
           tip="$(git rev-parse origin/main)"
           if [[ "$GITHUB_SHA" != "$tip" ]]; then
             echo "Current main is $tip; $GITHUB_SHA was superseded, so it gets no tag."
-            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "create=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -114,70 +190,10 @@ jobs:
             exit 1
           fi
           {
-            echo "build=true"
             echo "create=$create"
             echo "tag=$tag"
             echo "version=$version"
           } >> "$GITHUB_OUTPUT"
-
-      # The VM starts with an empty Docker store, so each build pulls the
-      # base images and runs pnpm install again.
-      - name: Build container
-        if: steps.plan.outputs.build == 'true'
-        shell: bash
-        env:
-          TAG: ${{ steps.plan.outputs.tag }}
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: |
-          set -euo pipefail
-          # Each job VM shares the host's public IP with every other job, and
-          # Docker Hub refuses an anonymous pull from an IP that reached its
-          # limit. The build pulls the base image, so the retry belongs around
-          # the build. The plain progress keeps the pull error in the log.
-          for attempt in 1 2 3; do
-            if docker build \
-              --progress=plain \
-              --build-arg "PANDA_VERSION=$VERSION" \
-              --build-arg "VCS_REF=$GITHUB_SHA" \
-              --tag "panda:$TAG" \
-              .; then
-              exit 0
-            fi
-            echo "the image build failed on attempt $attempt"
-            sleep 60
-          done
-          echo "::error::the image build failed three times"
-          exit 1
-
-      - name: Smoke-test container
-        if: steps.plan.outputs.build == 'true'
-        shell: bash
-        env:
-          TAG: ${{ steps.plan.outputs.tag }}
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: |
-          set -euo pipefail
-          container="$(docker run --detach --rm "panda:$TAG")"
-          trap 'docker stop "$container" >/dev/null' EXIT
-
-          for attempt in {1..20}; do
-            if [[ "$(docker exec "$container" wget -q -O - http://127.0.0.1:8530/healthz 2>/dev/null || true)" == "ok" ]]; then
-              break
-            fi
-            if [[ "$attempt" == 20 ]]; then
-              docker logs "$container"
-              echo "::error::container did not become healthy"
-              exit 1
-            fi
-            sleep 1
-          done
-
-          docker exec "$container" wget -q -O /tmp/index.html http://127.0.0.1:8530/
-          docker exec "$container" test -s /tmp/index.html
-          docker exec "$container" grep -R -q -- "$VERSION" /usr/share/nginx/html/assets
-          test "$(docker image inspect --format '{{.Config.User}}' "panda:$TAG")" = "101"
-          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "panda:$TAG")" = "$VERSION"
-          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "panda:$TAG")" = "$GITHUB_SHA"
 
       # The tagger is the job token's user, `forgejo-actions`. The address
       # is a placeholder that no mail reaches.
@@ -193,14 +209,4 @@ jobs:
           git config user.email forgejo-actions@noreply.invalid
           git tag --annotate "$TAG" "$GITHUB_SHA" --message "Panda $VERSION"
           git push origin "refs/tags/$TAG"
-          echo "Created $TAG at $GITHUB_SHA after the container smoke test." >> "$GITHUB_STEP_SUMMARY"
-
-      # Arcane Git Sync selects branches, not tag patterns. This branch moves
-      # only after the same commit passed tests, image build, and smoke test.
-      - name: Advance Arcane deployment branch
-        if: steps.plan.outputs.build == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git push origin "$GITHUB_SHA:refs/heads/arcane"
-          echo "Advanced the Arcane deployment branch to $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          echo "Created $TAG at $GITHUB_SHA after the tests and the container smoke test passed." >> "$GITHUB_STEP_SUMMARY"
