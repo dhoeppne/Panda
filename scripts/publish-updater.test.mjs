@@ -121,4 +121,12 @@ describe('Forgejo credential boundary', () => {
     await expect(api.download({ browser_download_url: 'https://git.davidhoeppner.ca/attachments/test' }, '/unused')).rejects.toThrow('outside');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+  it('checks the public stable feed without an account credential', async () => {
+    const destination = mkdtempSync(join(tmpdir(), 'panda-public-feed-')); temporary.push(destination);
+    const fetchImpl = vi.fn(async () => new Response('public manifest', { status: 200 }));
+    const api = createForgejoReleaseApi({ token: 'synthetic-test-token', fetchImpl });
+    await api.download({ browser_download_url: FEED_URL }, join(destination, 'latest.json'), { authenticated: false });
+    expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(readFileSync(join(destination, 'latest.json'), 'utf8')).toBe('public manifest');
+  });
 });

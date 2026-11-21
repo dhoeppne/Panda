@@ -79,7 +79,7 @@ export async function publishUpdate({ plan, directory, publicKey, verifier, allo
       const latest = await api.json('GET', `${RELEASE_API}/releases/latest`);
       if (latest?.id !== draft.id) throw new Error('The new release did not become Forgejo’s stable release.');
       const stable = join(directoryForCheck, 'stable-feed.json');
-      await api.download({ browser_download_url: FEED_URL }, stable);
+      await api.download({ browser_download_url: FEED_URL }, stable, { authenticated: false });
       if (hash(stable) !== checksums.get('latest.json')) throw new Error('The stable feed differs from the verified manifest.');
     } catch (error) {
       try { await api.json('PATCH', `${RELEASE_API}/releases/${draft.id}`, { draft: true }); }

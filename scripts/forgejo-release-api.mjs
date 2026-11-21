@@ -32,11 +32,11 @@ export function createForgejoReleaseApi({ token, apiBase = PUBLIC_API, fetchImpl
       if (!response.ok) throw new Error(`Forgejo asset upload failed (HTTP ${response.status}); draft retained.`);
       return response.json();
     },
-    async download(asset, destination) {
+    async download(asset, destination, { authenticated = true } = {}) {
       let url = new URL(asset.browser_download_url);
       for (let redirects = 0; redirects < 5; redirects++) {
         if (url.origin !== FORGEJO_ORIGIN || url.username || url.password) throw new Error('Refusing a release download outside the configured forge.');
-        const response = await perform(url.href, { headers });
+        const response = await perform(url.href, { headers: authenticated ? headers : {} });
         if ([301, 302, 303, 307, 308].includes(response.status)) {
           const location = response.headers.get('location');
           if (!location) throw new Error('Release download redirect is missing its destination.');
