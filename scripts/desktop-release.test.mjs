@@ -33,7 +33,8 @@ function fixture() {
   return { repo, git, plan: resolveRelease('panda-v0.2.21', repo) };
 }
 
-describe('desktop release source', () => {
+// Real Git commits/fsyncs and standalone Node helpers are slower on the CI VM.
+describe('desktop release source', { timeout: 20_000 }, () => {
   it.each(['v1.2.3', 'panda-v1.2', 'panda-v01.2.3', 'panda-v1.2.3-beta.1', '../main', 'panda-v1.2.3\n', 'panda-v9007199254740992.0.0'])(
     'rejects ambiguous or unsupported release inputs: %j', (tag) => expect(() => releaseVersion(tag)).toThrow(),
   );

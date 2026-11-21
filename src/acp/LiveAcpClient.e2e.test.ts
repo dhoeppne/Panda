@@ -274,6 +274,8 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     }
   };
 
+  // A second socket starts a fresh Node/deepagents process. Its cold start
+  // is not an ACP request timing assertion and needs a bounded CI budget.
   it('声明图片与 load 能力、全套 session 管理能力,并支持模式切换', async () => {
     expect(records.capabilities).toEqual([
       { image: true, embeddedContext: false, loadSession: true, list: true, resume: true, delete: true, rewind: false },
@@ -316,7 +318,7 @@ describe.skipIf(!hasAgentDeps)('LiveAcpClient × deepagents 测试 agent(e2e)', 
     } finally {
       connection.close();
     }
-  });
+  }, 30_000);
 
   /** Folds a slice of the recorded update stream into a session document. */
   const foldSlice = (from: number) =>
