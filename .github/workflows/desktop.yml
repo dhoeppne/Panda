@@ -1,7 +1,7 @@
 name: Desktop
 
-# Build an explicitly selected immutable release source. This foundation
-# uploads workflow artifacts only; signed publishing is a later milestone.
+# Build an exact source tag. Signed Apple Silicon updates remain artifacts
+# unless publication is explicitly requested; drafts are verified before promotion.
 
 on:
   workflow_dispatch:
@@ -10,6 +10,11 @@ on:
         description: 'Existing stable release tag (panda-vX.Y.Z)'
         required: true
         type: string
+      publish_release:
+        description: 'Publish the verified Apple Silicon update as the stable release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -40,6 +45,19 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         shell: bash
         run: node scripts/desktop-release.mjs plan "$RELEASE_TAG" "$RUNNER_TEMP/panda-desktop-release"
+
+      - name: Preserve updater tooling (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          DIR="$RUNNER_TEMP/panda-desktop-release"
+          cp "$DIR/release-tool.mjs" "$DIR/desktop-release.mjs"
+          cp scripts/updater-release.mjs "$DIR/updater-release.mjs"
+          cp desktop/updater.pub "$DIR/updater.pub"
+          mkdir -p "$DIR/updater-verify/src"
+          cp desktop/updater-verify/Cargo.toml desktop/updater-verify/Cargo.lock "$DIR/updater-verify/"
+          cp desktop/updater-verify/src/main.rs "$DIR/updater-verify/src/"
+          node "$DIR/updater-release.mjs" configure "$DIR" "$DIR/updater.pub"
 
       - name: Check out release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -76,7 +94,27 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
+      - name: Build signature verifier (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cargo build --locked --release --manifest-path "$RUNNER_TEMP/panda-desktop-release/updater-verify/Cargo.toml"
+
+      - name: Build signed app and updater archive (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PANDA_VERSION: ${{ steps.release.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo 'Configure TAURI_SIGNING_PRIVATE_KEY before building signed updates.' >&2
+            exit 1
+          fi
+          pnpm desktop:build --bundles app,dmg --config "$RUNNER_TEMP/panda-desktop-release/tauri.release.json"
+
       - name: Build bundled artifacts (dmg / NSIS)
+        if: runner.os == 'Windows'
         shell: bash
         env:
           PANDA_VERSION: ${{ steps.release.outputs.version }}
@@ -96,6 +134,15 @@ jobs:
         shell: bash
         run: node "$RUNNER_TEMP/panda-desktop-release/release-tool.mjs" verify-macos "$RUNNER_TEMP/panda-desktop-release"
 
+      - name: Verify and assemble signed update (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          DIR="$RUNNER_TEMP/panda-desktop-release"
+          VERIFIER="$DIR/updater-verify/target/release/panda-updater-verify"
+          node "$DIR/updater-release.mjs" assemble "$DIR" "$VERIFIER"
+          node "$DIR/updater-release.mjs" check-tamper "$DIR" "$VERIFIER"
+
       - name: Verify Windows executable version and source
         if: runner.os == 'Windows'
         shell: bash
@@ -110,6 +157,7 @@ jobs:
           mkdir -p "$DIR"
           mv "desktop/src-tauri/target/release/bundle/dmg/Panda_${VERSION}_aarch64.dmg" "$DIR/"
           cp "$RUNNER_TEMP/panda-desktop-release/release.json" "$DIR/Panda_${VERSION}_macos-release.json"
+          cp "$RUNNER_TEMP/panda-desktop-release/signed/"* "$DIR/"
           echo "ARTIFACTS=$DIR" >> "$GITHUB_ENV"
 
       - name: Collect artifacts (Windows)
@@ -131,3 +179,42 @@ jobs:
           name: panda-desktop-${{ steps.release.outputs.version }}-${{ runner.os }}
           path: ${{ env.ARTIFACTS }}/*
           if-no-files-found: error
+
+  publish:
+    if: inputs.publish_release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: panda-desktop-stable-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Prepare publication plan and verifier
+        id: publication
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          DIR="$RUNNER_TEMP/panda-desktop-release"
+          node scripts/desktop-release.mjs plan "$RELEASE_TAG" "$DIR"
+          cp desktop/updater.pub "$DIR/updater.pub"
+          cargo build --locked --release --manifest-path desktop/updater-verify/Cargo.toml
+      - name: Download this run's verified macOS artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.publication.outputs.version }}
+        run: gh run download "$GITHUB_RUN_ID" --repo la-creche/Panda --name "panda-desktop-${VERSION}-macOS" --dir "$RUNNER_TEMP/panda-desktop-release/signed"
+      - name: Publish verified draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PANDA_PUBLISH_RELEASE: 'true'
+        run: node scripts/publish-updater.mjs "$RUNNER_TEMP/panda-desktop-release" "$GITHUB_WORKSPACE/desktop/updater-verify/target/release/panda-updater-verify"

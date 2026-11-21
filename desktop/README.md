@@ -122,10 +122,19 @@ Outputs are `Panda_<ver>_aarch64.dmg`, `Panda_<ver>_x64-setup.exe`,
 the source tag, commit, version and executable SHA-256. They are uploaded as
 workflow artifacts named `panda-desktop-<ver>-<OS>`.
 
-This foundation has read-only repository permissions and does not publish
-GitHub Releases. Signing, updater archives and update-feed publication are
-the next milestone. Builds retain the existing unsigned/ad-hoc distribution
-behavior; see ADR 0007.
+The build jobs have read-only repository permissions. The macOS job creates
+a signed updater archive with the public key in `desktop/updater.pub` and
+the private signing key supplied only to its build step. Windows continues
+producing the versioned installers above; the update feed currently supports
+Apple Silicon macOS only.
+
+`publish_release` defaults to false. When explicitly enabled, a separate job
+with repository write permission creates or resumes a draft release,
+uploads the signed update, downloads it again, and verifies the downloaded
+bytes and signature before publishing. All stable publishers are serialized;
+same/older versions, changed tags, and already-published releases are refused.
+Failed publication leaves the draft hidden and the previous stable feed in
+place. The publishing job receives no private signing key.
 
 ### Local verification without GitHub
 
@@ -146,6 +155,55 @@ check verifies the app bundle; the workflow additionally packages its DMG.
 Do not label a dirty development checkout as a tagged release: the source
 check intentionally refuses it. The current helper can be invoked by an
 absolute path while working in an older clean tag checkout.
+
+### Signing setup and release procedure
+
+The updater signing key is independent of Apple code signing. The public
+key can be committed; the private key must stay outside this repository.
+Back up the private key securely: existing clients trust its public half,
+so losing it interrupts that update path. This personal-use Mac pipeline
+uses ad-hoc Apple signing and does not notarize the application.
+
+1. Generate a dedicated key with Tauri's `signer generate --ci --write-keys`
+   command into a private directory outside the checkout. Keep directory
+   permissions at `0700` and private-key permissions at `0600`. Commit only
+   the generated `.pub` file as `desktop/updater.pub`.
+2. Keep a separate secure backup of the private key. Repository setup must
+   add its contents as `TAURI_SIGNING_PRIVATE_KEY`; set
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key has a password. Never
+   paste a private key into a PR, issue, console log or this document.
+3. Dispatch Desktop for the desired `panda-vX.Y.Z` tag with publishing off.
+   The job fails if the signing key is missing or mismatches the public key.
+   macOS artifacts include the DMG, `.app.tar.gz`, `.sig`, `latest.json`,
+   and `updater-release.json` with source and file hashes.
+4. After checking the build, explicitly enable `publish_release` for the
+   selected tag. The job verifies the remote tag's commit, prevents a
+   version rollback, checks downloaded assets, and then promotes the draft
+   to the stable GitHub Release. Published assets are never overwritten.
+5. Retain the previous installer for manual recovery. A corrective automatic
+   release should use a higher version. Runtime update controls and the
+   first installed-app update rehearsal are subsequent milestones.
+
+`latest.json` uses a version-specific HTTPS GitHub archive URL and includes
+the signature contents, not a signature URL. The stable endpoint is
+`https://github.com/la-creche/Panda/releases/latest/download/latest.json`.
+The independent `desktop/updater-verify` CLI checks Tauri's base64-wrapped
+Minisign files using pinned `minisign-verify`, with no app/GitHub credentials.
+
+For a local rehearsal, configure the generated release overlay with
+`scripts/updater-release.mjs configure <plan-dir> <public-key>`, build with
+the signing key in the environment, and rerun the native app verification.
+Build the verifier with `cargo build --locked --release --manifest-path
+desktop/updater-verify/Cargo.toml`. Then run `assemble` and `check-tamper`,
+each taking the plan directory and verifier executable. `publication-plan`
+prints the intended assets without contacting GitHub. The publisher CLI
+requires explicit CI/repository/publication flags before making any request.
+
+Release-tool tests run with `pnpm exec vitest run
+scripts/desktop-release.test.mjs scripts/updater-release.test.mjs`. The real
+signer tests run when `PANDA_UPDATER_VERIFY_BIN` names a built verifier
+(or its default debug build exists); release builds also check the actual
+archive and reject a deliberately modified copy before collecting assets.
 
 ## Restart recovery
 
