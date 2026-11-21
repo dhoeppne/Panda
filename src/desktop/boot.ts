@@ -1,5 +1,10 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { onAction, requestPermission } from '@tauri-apps/plugin-notification';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { setDesktopNotificationHost, activateNotificationChat } from '../desktopNotifications';
+import { navigate, parseHash } from '../routes';
+import { t } from '../i18n';
 import {
   createStdioTransportFactory,
   type StdioChildProcess,
@@ -108,7 +113,7 @@ function tauriStdioSpawn(): StdioSpawn {
 }
 
 /** Registers the desktop host's stdio capability. Idempotent by effect. */
-export function bootDesktop(): void {
+export async function bootDesktop(): Promise<void> {
   setStdioTransportFactory(createStdioTransportFactory(tauriStdioSpawn()));
   setWebSocketHost({
     signIn: (url) => invoke('server_sign_in', { url }),
@@ -128,4 +133,37 @@ export function bootDesktop(): void {
     });
   });
   console.info('[panda/desktop] stdio transport factory registered (desktop host)');
+  try {
+    const window = getCurrentWindow();
+    // The listener must be registered before sending, including test notifications.
+    const listener = await onAction((action) => {
+      if (action.actionId !== 'tap') return;
+      void activateNotificationChat(action.notification?.extra, {
+        show: () => window.show(), unminimize: () => window.unminimize(),
+        focus: () => window.setFocus(), navigate: (chat) => navigate({ kind: 'chat', ...chat }),
+      }).catch(() => console.warn('[panda/notifications] could not open the notification chat'));
+    });
+    let nextId = 1;
+    setDesktopNotificationHost({
+      requestPermission: async () => (await requestPermission()) === 'granted',
+      isFocused: () => window.isFocused(),
+      viewedChat: () => {
+        const route = parseHash(globalThis.location.hash);
+        return route.kind === 'chat' ? { namespace: route.namespace, sessionId: route.sessionId } : null;
+      },
+      // Invoke the plugin command so IPC rejection is handled. Eventual OS
+      // delivery remains best-effort (the plugin cannot confirm a Mac banner).
+      send: async (kind, chat) => invoke('plugin:notification|notify', { options: {
+        id: nextId++, title: 'Panda', body: t(`notifications.body.${kind}`),
+        extra: chat ? { panda: { version: 1, ...chat } } : undefined,
+      } }),
+    });
+    if (import.meta.hot) import.meta.hot.dispose(() => {
+      setDesktopNotificationHost(null);
+      void listener.unregister();
+    });
+  } catch {
+    // Notification setup must not prevent chats or native connections from starting.
+    console.warn('[panda/notifications] desktop notifications are unavailable');
+  }
 }

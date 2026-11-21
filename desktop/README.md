@@ -160,3 +160,30 @@ Submitting/queuing a message or erasing its text clears the saved draft.
 Deleting a session clears its family's saved draft without removing a
 different family's draft with the same session id. Storage failures leave
 editing usable in memory; malformed saved records do not prevent startup.
+
+## Desktop notifications
+
+Settings → General has an opt-in notification control and a test button.
+Notifications are off by default and the preference is device-local. The
+test confirms that a notification was requested, not that macOS displayed
+it: macOS Notifications settings and Focus can suppress banners, and the
+plugin's desktop permission result does not report those settings.
+
+While Panda is running and connected, successful agent turns and genuinely
+pending permission requests can generate an alert. Cancelled/failed turns,
+replayed history, policy denials and remembered approvals do not. Alerts
+for the chat already being read in a focused window are suppressed; another
+chat or a minimized/background window can alert. Notification text is
+generic: no prompts, tool arguments or conversation titles are included.
+
+A body click shows, unminimizes and focuses the main window, then opens the
+exact chat through its existing route. It never approves a request. Deleted
+or unavailable chats follow normal route recovery. Plugin listeners are
+installed before connections start; notification failures do not block chat.
+
+The JS and Rust notification plugins are pinned to 2.8.1 (desktop click
+callbacks shipped in 2.6.0). Native notification/window permissions apply
+only to the local main window; login windows and remote pages get no grant.
+Development notifications may appear as Terminal. Use the installed release
+app to check Panda's banner identity, macOS settings, suppression and taps.
+App-quit delivery/click routing and server push are outside this feature.

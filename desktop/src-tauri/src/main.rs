@@ -247,6 +247,7 @@ fn sweep_orphans(table: &ProcTable) -> usize {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(ProcTable::default())
         .manage(server_auth::SocketTable::default())
         .invoke_handler(tauri::generate_handler![stdio_spawn, stdio_write, stdio_kill,
