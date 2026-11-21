@@ -587,3 +587,6 @@
   color: var(--color-muted);
   text-align: center;
 }
+.settings-update-progress { width: 100%; }
+.settings-update-notes { color: var(--color-muted); }
+.settings-update-notes p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow-y: auto; }

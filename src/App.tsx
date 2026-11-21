@@ -46,6 +46,8 @@ import { UserNoticeToasts } from './components/UserNoticeToasts';
 import type { ForegroundSessionController } from './session-controller';
 import './App.css';
 import { useI18n } from './i18n/context';
+import { useUpdateSafety } from './updateSafety';
+import { useDesktopUpdater } from './desktopUpdater';
 
 /** The drawer's breakpoint, as Sidebar.css declares it: at 768px and up the
  * sidebar is a static column and there is nothing to swipe. */
@@ -56,7 +58,15 @@ const DRAWER_QUERY = '(min-width: 768px)';
  * swaps only the main column's content (#111) so the app chrome — sidebar,
  * header, mobile drawer — never unmounts across routes. */
 export default function App() {
-  return <MainScreen />;
+  const locked = useUpdateSafety((state) => state.locked);
+  const updater = useDesktopUpdater();
+  const { t } = useI18n();
+  return <>
+    <div className="app-update-boundary" inert={locked}><MainScreen /></div>
+    {locked && <div className="desktop-update-shield" role="status" aria-live="polite">
+      {t(updater.phase === 'restarting' ? 'updates.restarting' : 'updates.installing')}
+    </div>}
+  </>;
 }
 
 function MainScreen() {

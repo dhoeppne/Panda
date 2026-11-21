@@ -21,6 +21,7 @@ import {
 } from '../attachments';
 import { draftForKey, useComposerDrafts } from '../composerDrafts';
 import { queueForKey, useMessageQueue, type QueuedMessage } from '../messageQueue';
+import { beginAttachmentRead, updaterWorkLocked } from '../updateSafety';
 import type {
   AcpAvailableCommand,
   AcpConfigOption,
@@ -226,14 +227,15 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
   };
 
   const submit = () => {
-    if (action === 'none') return;
+    if (action === 'none' || updaterWorkLocked()) return;
     if (action === 'send') onSend(promptContent);
     else useMessageQueue.getState().enqueue(sessionKey, promptContent);
     useComposerDrafts.getState().clearDraft(draftKey);
   };
 
   const addFiles = async (files: File[]) => {
-    if (attachmentDisabled || files.length === 0) return;
+    if (attachmentDisabled || updaterWorkLocked() || files.length === 0) return;
+    const finishRead = beginAttachmentRead();
     setDraft({ attachmentError: null });
     try {
       const added = await Promise.all(files.map(fileToAttachment));
@@ -242,7 +244,7 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
       const message = err instanceof Error ? err.message : String(err);
       console.error('[panda/composer] failed to read a file attachment', err);
       setDraft({ attachmentError: t('composer.readFileFailed', { message }) });
-    }
+    } finally { finishRead(); }
   };
 
   // Drag and drop: the card always takes a file drop (the browser would

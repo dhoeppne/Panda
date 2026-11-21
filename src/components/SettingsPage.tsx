@@ -39,6 +39,11 @@ import { LOCALES, saveLocale } from '../i18n';
 import { t } from '../i18n';
 import { useI18n } from '../i18n/context';
 import { notifyUser } from '../userNotice';
+import { desktopUpdater, useDesktopUpdater } from '../desktopUpdater';
+import { restartBlocker, useUpdateSafety } from '../updateSafety';
+import { usePanda } from '../store';
+import { useComposerDrafts } from '../composerDrafts';
+import { useMessageQueue } from '../messageQueue';
 import { copyDiagnosticsReport } from './ErrorBoundary';
 import {
   desktopNotificationsAvailable, notificationsEnabled, setNotificationsEnabled,
@@ -162,7 +167,7 @@ function SettingsRow({ title, description, children }: {
 function GeneralSection() {
   const { t } = useI18n();
   return (
-    <section className="settings-card">
+    <><section className="settings-card">
       <h2 className="settings-group-title">{t('settings.appearanceGroup')}</h2>
       <SettingsRow title={t('settings.themeRow')} description={t('settings.themeRowDesc')}>
         <ThemeSwatches />
@@ -178,8 +183,50 @@ function GeneralSection() {
       </SettingsRow>
       <SyncStatusRow />
       {desktopNotificationsAvailable() && <NotificationSettingsRow />}
-    </section>
+    </section><DesktopUpdateSettings /></>
   );
+}
+
+export function DesktopUpdateSettings() {
+  const { t } = useI18n();
+  const updater = useDesktopUpdater();
+  const connections = usePanda((state) => state.connections);
+  const drafts = useComposerDrafts((state) => state.drafts);
+  const queues = useMessageQueue((state) => state.queues);
+  const reads = useUpdateSafety((state) => state.attachmentReads);
+  if (updater.phase === 'unavailable') return null;
+  const blocker = restartBlocker(connections, drafts, queues, reads) ?? (updater.error === 'persist' ? 'drafts' : null);
+  const busy = ['checking', 'downloading', 'installing', 'restarting'].includes(updater.phase);
+  const phaseKeys = {
+    idle: 'updates.idle', checking: 'updates.checking', current: 'updates.current',
+    available: 'updates.available', downloading: 'updates.downloading', installing: 'updates.installing',
+    installed: 'updates.installed', restarting: 'updates.restarting', error: 'updates.error.check',
+  } as const;
+  const status = updater.error ? t(`updates.error.${updater.error}`) :
+    t(phaseKeys[updater.phase], { version: updater.update?.version ?? '' });
+  return <section className="settings-card" aria-label={t('updates.title')}>
+    <h2 className="settings-group-title">{t('updates.title')}</h2>
+    <SettingsRow title={t('updates.version')}>
+      <span className="settings-row-value">{updater.version ?? __APP_VERSION__}</span>
+    </SettingsRow>
+    <SettingsRow title={t('updates.check')} description={t('updates.description')}>
+      <Button variant="secondary" size="sm" isDisabled={busy || updater.phase === 'installed'}
+        label={t('updates.check')} clickAction={() => { void desktopUpdater.check(); }} />
+      {(updater.phase === 'available' || updater.phase === 'installed') &&
+        <Button variant="primary" size="sm" isDisabled={busy || blocker !== null && blocker !== 'drafts'}
+          label={t(updater.phase === 'installed' ? 'updates.restart' : 'updates.install')}
+          clickAction={() => { void desktopUpdater.installAndRestart(); }} />}
+    </SettingsRow>
+    <p className="settings-card-desc" role="status">{status}</p>
+    {blocker && <p className="settings-card-desc">{t(`updates.blocked.${blocker}`)}</p>}
+    {updater.phase === 'downloading' && <progress className="settings-update-progress"
+      aria-label={t('updates.downloading')} max={updater.total ?? 1}
+      value={updater.total === null ? undefined : Math.min(updater.downloaded, updater.total)} />}
+    {updater.update && <details className="settings-update-notes">
+      <summary>{t('updates.notes')}</summary>
+      <p>{updater.update.notes || t('updates.noNotes')}</p>
+    </details>}
+  </section>;
 }
 
 function NotificationSettingsRow() {

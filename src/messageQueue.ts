@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
+import { updaterWorkLocked } from './updateSafety';
 import type { AcpUserContentBlock, SessionDocument } from './protocol/types';
 
 /**
@@ -53,6 +54,7 @@ export const useMessageQueue = create<MessageQueueState>((set, get) => {
   return {
     queues: {},
     enqueue: (key, content) => {
+      if (updaterWorkLocked()) return;
       if (content.length === 0) return;
       const queue = queueForKey(get(), key);
       nextId += 1;
@@ -65,6 +67,7 @@ export const useMessageQueue = create<MessageQueueState>((set, get) => {
       write(key, { items, paused: items.length > 0 && queue.paused });
     },
     takeNext: (key) => {
+      if (updaterWorkLocked()) return null;
       const queue = queueForKey(get(), key);
       const [head, ...rest] = queue.items;
       if (head === undefined) return null;

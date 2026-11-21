@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,6 +32,7 @@ use tokio::sync::Notify;
 
 mod server_auth;
 mod websocket;
+mod updater;
 
 /// One live agent child. The `Child` itself is owned exclusively by the exit
 /// watcher task (wait + terminate cannot share it); the table keeps only the
@@ -45,6 +46,20 @@ struct ProcEntry {
 struct ProcTable {
     next_id: AtomicU32,
     procs: Mutex<HashMap<u32, ProcEntry>>,
+    shutting_down: AtomicBool,
+    starting: AtomicU32,
+}
+
+struct PendingSpawn<'a>(&'a ProcTable);
+impl Drop for PendingSpawn<'_> {
+    fn drop(&mut self) { self.0.starting.fetch_sub(1, Ordering::SeqCst); }
+}
+
+fn begin_spawn(table: &ProcTable) -> Result<PendingSpawn<'_>, String> {
+    let _procs = table.procs.lock().unwrap();
+    if table.shutting_down.load(Ordering::SeqCst) { return Err("Panda is preparing to restart.".into()); }
+    table.starting.fetch_add(1, Ordering::SeqCst);
+    Ok(PendingSpawn(table))
 }
 
 /// Events streamed to the webview. stdout/stderr carry base64 so a chunk
@@ -85,6 +100,7 @@ async fn stdio_spawn(
     cwd: String,
     on_event: Channel<StdioEvent>,
 ) -> Result<u32, String> {
+    let _pending_spawn = begin_spawn(&table)?;
     let mut command = Command::new(&program);
     command
         .args(&args)
@@ -105,13 +121,20 @@ async fn stdio_spawn(
 
     let id = table.next_id.fetch_add(1, Ordering::Relaxed);
     let kill = std::sync::Arc::new(Notify::new());
-    table.procs.lock().unwrap().insert(
-        id,
-        ProcEntry {
-            stdin: Arc::new(tokio::sync::Mutex::new(stdin.take())),
-            kill: kill.clone(),
-        },
-    );
+    let registered = {
+        let mut procs = table.procs.lock().unwrap();
+        if table.shutting_down.load(Ordering::SeqCst) { false }
+        else {
+            procs.insert(id, ProcEntry {
+                stdin: Arc::new(tokio::sync::Mutex::new(stdin.take())), kill: kill.clone(),
+            });
+            true
+        }
+    };
+    if !registered {
+        terminate_child(&mut child).await;
+        return Err("Panda is preparing to restart.".into());
+    }
 
     // stdout: raw bytes -> base64 chunks. Read errors end the pump; the exit
     // watcher reports the reason the process is gone.
@@ -246,14 +269,19 @@ fn sweep_orphans(table: &ProcTable) -> usize {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new()
+        .pubkey(include_str!("../../updater.pub").trim()).build());
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .manage(ProcTable::default())
         .manage(server_auth::SocketTable::default())
         .invoke_handler(tauri::generate_handler![stdio_spawn, stdio_write, stdio_kill,
             server_auth::server_sign_in, server_auth::websocket_connect,
-            server_auth::websocket_write, server_auth::websocket_close])
+            server_auth::websocket_write, server_auth::websocket_close,
+            updater::desktop_updater_info, updater::desktop_update_restart])
         // Webview (re)load sweep (#7): a reload destroys the JS state that
         // owned these children — nobody will ever read their stdout again,
         // and without this they linger forever (a reconnect then races a
@@ -273,6 +301,8 @@ fn main() {
         .expect("panda desktop shell failed to start")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
+                app.state::<ProcTable>().shutting_down.store(true, Ordering::SeqCst);
+                app.state::<server_auth::SocketTable>().shutting_down.store(true, Ordering::SeqCst);
                 server_auth::close_all(&app.state::<server_auth::SocketTable>());
                 // #7: tao ends its event loop with std::process::exit —
                 // destructors and the async runtime never run, so
@@ -282,13 +312,13 @@ fn main() {
                 // 一并清理」promise.
                 let table = app.state::<ProcTable>();
                 let swept = sweep_orphans(&table);
-                if swept > 0 {
+                if swept > 0 || table.starting.load(Ordering::SeqCst) > 0 {
                     println!("[panda-desktop] exiting: terminating {swept} agent process(es)");
                     // 3s SIGTERM grace + margin; past the deadline the
                     // watcher's SIGKILL is already armed — leaving beats
                     // hanging the quit forever.
                     let deadline = Instant::now() + Duration::from_secs(5);
-                    while !table.procs.lock().unwrap().is_empty() {
+                    while !table.procs.lock().unwrap().is_empty() || table.starting.load(Ordering::SeqCst) > 0 {
                         if Instant::now() >= deadline {
                             println!("[panda-desktop] exit sweep timed out with agent(s) still dying (SIGKILL armed)");
                             break;

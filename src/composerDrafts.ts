@@ -62,6 +62,8 @@ interface ComposerDraftsState {
   clearDraft: (key: string) => void;
   /** Delete a session's draft in its family; the optional legacy form clears all matching sessions. */
   clearSessionDrafts: (sessionId: string, connectionId?: string) => void;
+  /** Refuse restart when any nonempty text cannot be saved and read back exactly. */
+  prepareForRestart: () => boolean;
 }
 
 /** Injectable storage lets tests simulate separate app launches without browser globals. */
@@ -89,6 +91,25 @@ export function createComposerDraftStore(providedStorage?: DraftStorage) {
 
   return create<ComposerDraftsState>((set, get) => ({
     drafts: initial,
+    prepareForRestart: () => {
+      const drafts = Object.entries(get().drafts);
+      const nonempty = drafts.filter(([, draft]) => draft.value.length > 0);
+      if (nonempty.length === 0) return true;
+      if (nonempty.some(([key]) => !durableKey(key))) return false;
+      try {
+        const target = storage();
+        if (!target) return false;
+        const saved = readTexts(target);
+        for (const [key, draft] of drafts) {
+          if (!durableKey(key)) continue;
+          if (draft.value) saved[key] = draft.value;
+          else delete saved[key];
+        }
+        target.setItem(TEXT_DRAFTS_KEY, JSON.stringify({ version: 1, drafts: saved }));
+        const confirmed = readTexts(target);
+        return nonempty.every(([key, draft]) => confirmed[key] === draft.value);
+      } catch { return false; }
+    },
     setDraft: (key, patch) => {
       const draft = { ...draftOf(get(), key), ...patch };
       set((s) => ({ drafts: { ...s.drafts, [key]: draft } }));
