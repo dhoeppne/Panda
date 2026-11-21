@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { assertReleaseSource, releaseVersion, verifyMacMetadata } from './desktop-release.mjs';
 
 export const REPOSITORY = 'la-creche/Panda';
-const FEED_URL = `https://github.com/${REPOSITORY}/releases/latest/download/latest.json`;
+export const FORGEJO_ORIGIN = 'https://git.davidhoeppner.ca';
+export const FEED_URL = `${FORGEJO_ORIGIN}/${REPOSITORY}/releases/download/latest/latest.json`;
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -56,7 +57,7 @@ export function makeManifest(plan, signature) {
   return {
     version: plan.version, notes: `Panda desktop ${plan.version}`,
     platforms: { 'darwin-aarch64': {
-      url: `https://github.com/${REPOSITORY}/releases/download/${plan.tag}/${archiveName(plan)}`,
+      url: `${FORGEJO_ORIGIN}/${REPOSITORY}/releases/download/${plan.tag}/${archiveName(plan)}`,
       signature,
     } },
   };

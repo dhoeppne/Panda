@@ -1,7 +1,8 @@
 name: Desktop
 
-# Build an exact source tag. Signed Apple Silicon updates remain artifacts
-# unless publication is explicitly requested; drafts are verified before promotion.
+# Legacy GitHub artifact build; Forgejo ignores this directory. Native builds
+# on this forge run locally. Publication uses scripts/publish-updater.mjs and
+# the Forgejo API, never a GitHub token or release.
 
 on:
   workflow_dispatch:
@@ -10,11 +11,6 @@ on:
         description: 'Existing stable release tag (panda-vX.Y.Z)'
         required: true
         type: string
-      publish_release:
-        description: 'Publish the verified Apple Silicon update as the stable release'
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -179,42 +175,3 @@ jobs:
           name: panda-desktop-${{ steps.release.outputs.version }}-${{ runner.os }}
           path: ${{ env.ARTIFACTS }}/*
           if-no-files-found: error
-
-  publish:
-    if: inputs.publish_release
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    concurrency:
-      group: panda-desktop-stable-publish
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 24
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      - name: Prepare publication plan and verifier
-        id: publication
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          DIR="$RUNNER_TEMP/panda-desktop-release"
-          node scripts/desktop-release.mjs plan "$RELEASE_TAG" "$DIR"
-          cp desktop/updater.pub "$DIR/updater.pub"
-          cargo build --locked --release --manifest-path desktop/updater-verify/Cargo.toml
-      - name: Download this run's verified macOS artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.publication.outputs.version }}
-        run: gh run download "$GITHUB_RUN_ID" --repo la-creche/Panda --name "panda-desktop-${VERSION}-macOS" --dir "$RUNNER_TEMP/panda-desktop-release/signed"
-      - name: Publish verified draft
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PANDA_PUBLISH_RELEASE: 'true'
-        run: node scripts/publish-updater.mjs "$RUNNER_TEMP/panda-desktop-release" "$GITHUB_WORKSPACE/desktop/updater-verify/target/release/panda-updater-verify"

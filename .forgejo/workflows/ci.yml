@@ -57,6 +57,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The signer tests use only generated throwaway keys. No signing secret
+      # enters CI; the independent verifier is a small platform-neutral CLI.
+      - uses: https://github.com/dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Build independent updater signature verifier
+        run: cargo build --locked --manifest-path desktop/updater-verify/Cargo.toml
+
       - run: pnpm typecheck
       - run: pnpm --filter panda-test-agent typecheck
 

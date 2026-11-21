@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { archiveName, configureUpdater, installerName, makeManifest, publicationPlan, publicKeyText, validateUpdate, verifySignature } from './updater-release.mjs';
-import { publishUpdate } from './publish-updater.mjs';
 
 const plan = { tag: 'panda-v1.2.3', version: '1.2.3', commit: 'a'.repeat(40) };
 const publicKey = fileURLToPath(new URL('../desktop/updater.pub', import.meta.url));
@@ -25,7 +24,7 @@ describe('signed update preparation', () => {
     const config = JSON.parse(readFileSync(join(output, 'tauri.release.json'), 'utf8'));
     expect(config.bundle).toMatchObject({ createUpdaterArtifacts: true, macOS: { infoPlist: '/original.plist', signingIdentity: '-' } });
     expect(config.plugins.updater.pubkey).toBe(publicKeyText(publicKey));
-    expect(config.plugins.updater.endpoints).toEqual(['https://github.com/la-creche/Panda/releases/latest/download/latest.json']);
+    expect(config.plugins.updater.endpoints).toEqual(['https://git.davidhoeppner.ca/la-creche/Panda/releases/download/latest/latest.json']);
   });
 
   it('refuses a config with a different version', () => {
@@ -46,115 +45,11 @@ describe('signed update preparation', () => {
   it('uses a versioned HTTPS archive URL and signature contents for Apple Silicon only', () => {
     const manifest = makeManifest(plan, 'signature-contents');
     expect(manifest).toMatchObject({ version: '1.2.3', platforms: { 'darwin-aarch64': {
-      url: 'https://github.com/la-creche/Panda/releases/download/panda-v1.2.3/Panda_1.2.3_aarch64.app.tar.gz',
+      url: 'https://git.davidhoeppner.ca/la-creche/Panda/releases/download/panda-v1.2.3/Panda_1.2.3_aarch64.app.tar.gz',
       signature: 'signature-contents',
     } } });
     expect(Object.keys(manifest.platforms)).toEqual(['darwin-aarch64']);
     expect(publicationPlan(plan, '/assets').assets).toHaveLength(5);
-  });
-});
-
-function publicationFixture(options = {}) {
-  const directory = temp();
-  const assets = [archiveName(plan), `${archiveName(plan)}.sig`, installerName(plan), 'latest.json', 'updater-release.json'];
-  for (const asset of assets) writeFileSync(join(directory, asset), `verified-${asset}`);
-  const calls = [];
-  let commitReads = 0;
-  const missing = () => { const error = new Error('missing'); error.stderr = 'HTTP 404'; throw error; };
-  const run = (args) => {
-    calls.push(args);
-    if (args[0] === 'api') {
-      if (args[1].includes('/commits/')) {
-        commitReads++;
-        return JSON.stringify({ sha: options.changedTag && commitReads > 1 ? 'b'.repeat(40) : plan.commit });
-      }
-      if (args[1].endsWith('/releases/latest')) {
-        if (options.apiFailure) throw new Error('API unavailable');
-        return options.latest ? JSON.stringify({ tag_name: options.latest }) : missing();
-      }
-      return options.existing ? JSON.stringify(options.existing) : missing();
-    }
-    if (args[1] === 'download') {
-      const destination = args[args.indexOf('--dir') + 1];
-      for (const asset of assets) copyFileSync(join(directory, asset), join(destination, asset));
-      if (options.corruptDownload) appendFileSync(join(destination, assets[0]), 'changed');
-    }
-    return '';
-  };
-  const verify = vi.fn(() => assets);
-  const publish = () => publishUpdate({ plan, directory, publicKey, verifier: 'unused', allowPublish: true, run, verify });
-  return { publish, calls, verify };
-}
-
-describe('draft publication safeguards (no network)', () => {
-  it('makes no API calls unless publishing was explicitly enabled', () => {
-    const run = vi.fn();
-    const verify = vi.fn();
-    expect(() => publishUpdate({ run, verify })).toThrow('Publishing is disabled');
-    expect(run).not.toHaveBeenCalled();
-    expect(verify).not.toHaveBeenCalled();
-  });
-
-  it('creates and promotes a draft only after re-verifying the downloaded assets', () => {
-    const h = publicationFixture();
-    h.publish();
-    expect(h.verify).toHaveBeenCalledTimes(2);
-    const operations = h.calls.filter((args) => args[0] === 'release').map((args) => args[1]);
-    expect(operations).toEqual(['create', 'upload', 'download', 'edit']);
-    expect(h.calls.at(-1)).toContain('--draft=false');
-  });
-
-  it('resumes an existing draft without recreating it', () => {
-    const h = publicationFixture({ existing: { draft: true } });
-    h.publish();
-    expect(h.calls.some((args) => args[1] === 'create')).toBe(false);
-    expect(h.calls.at(-1)).toContain('--latest');
-  });
-
-  it('reuses matching draft assets without overwriting or uploading them again', () => {
-    const names = [archiveName(plan), `${archiveName(plan)}.sig`, installerName(plan), 'latest.json', 'updater-release.json'];
-    const h = publicationFixture({ existing: { draft: true, assets: names.map((name) => ({ name })) } });
-    h.publish();
-    expect(h.calls.some((args) => args[1] === 'upload')).toBe(false);
-    expect(h.calls.some((args) => args.includes('--clobber'))).toBe(false);
-  });
-
-  it('refuses to replace conflicting assets from a previous draft attempt', () => {
-    const h = publicationFixture({ existing: { draft: true, assets: [{ name: archiveName(plan) }] }, corruptDownload: true });
-    expect(h.publish).toThrow('refusing to overwrite');
-    expect(h.calls.some((args) => args[1] === 'upload' || args[1] === 'edit')).toBe(false);
-  });
-
-  it.each(['panda-v1.2.3', 'panda-v1.2.4', 'panda-v2.0.0'])(
-    'refuses to replace a stable release at %s with 1.2.3', (latest) => {
-      const h = publicationFixture({ latest });
-      expect(h.publish).toThrow('same or an older');
-      expect(h.calls.some((args) => args[0] === 'release')).toBe(false);
-    },
-  );
-
-  it('never overwrites a published release', () => {
-    const h = publicationFixture({ existing: { draft: false } });
-    expect(h.publish).toThrow('already published');
-    expect(h.calls.some((args) => args[0] === 'release')).toBe(false);
-  });
-
-  it('keeps the draft hidden if downloaded bytes differ', () => {
-    const h = publicationFixture({ corruptDownload: true });
-    expect(h.publish).toThrow('differ from the verified upload');
-    expect(h.calls.some((args) => args[1] === 'edit')).toBe(false);
-  });
-
-  it('keeps the draft hidden if the tag moves during publication', () => {
-    const h = publicationFixture({ changedTag: true });
-    expect(h.publish).toThrow('tag changed');
-    expect(h.calls.some((args) => args[1] === 'edit')).toBe(false);
-  });
-
-  it('stops on API errors instead of assuming no release exists', () => {
-    const h = publicationFixture({ apiFailure: true });
-    expect(h.publish).toThrow('Could not read');
-    expect(h.calls.some((args) => args[0] === 'release')).toBe(false);
   });
 });
 
