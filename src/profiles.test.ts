@@ -7,7 +7,9 @@ import {
   profileEndpoint,
   profileToLiveTarget,
   saveProfiles,
+  slugify,
   subscribeProfiles,
+  uniqueSlug,
   updateProfileFields,
   type AgentProfile,
   type ProfileStorage,
@@ -38,6 +40,7 @@ class MemoryStorage implements ProfileStorage {
 const profile = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   id: newProfileId(),
   name: 'Mock Agent',
+  slug: 'mock-agent',
   kind: 'websocket',
   url: 'ws://localhost:8765/acp',
   workspace: { kind: 'local-directory', path: '/tmp/project' },
@@ -48,6 +51,7 @@ const profile = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
 const stdioProfile = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   id: newProfileId(),
   name: 'Local Agent',
+  slug: 'local-agent',
   kind: 'stdio',
   command: 'node',
   args: 'agent.js --stdio',
@@ -68,7 +72,7 @@ describe('loadProfiles', () => {
 
   it('round-trips a saved list', () => {
     const storage = new MemoryStorage();
-    const list = [profile(), profile({ name: 'Gemini 桥', url: 'ws://10.0.0.5:9000/acp' })];
+    const list = [profile(), profile({ name: 'Gemini 桥', slug: 'gemini', url: 'ws://10.0.0.5:9000/acp' })];
     saveProfiles(list, storage);
     expect(loadProfiles(storage)).toEqual(list);
   });
@@ -88,7 +92,7 @@ describe('loadProfiles', () => {
   it('drops malformed entries and keeps valid ones', () => {
     const storage = new MemoryStorage();
     const good = profile();
-    const noneKind = profile({ workspace: workspaces.none() });
+    const noneKind = profile({ slug: 'mock-agent-2', workspace: workspaces.none() });
     storage.setRaw(
       JSON.stringify([
         good,
@@ -131,10 +135,14 @@ describe('loadProfiles', () => {
     const storage = new MemoryStorage();
     const legacy = { id: 'legacy-1', name: '旧配置', url: 'ws://old:8765/acp', workspace: workspaces.local() };
     storage.setRaw(JSON.stringify([legacy]));
+    // A legacy entry has no slug (ADR 0010): the loader derives one from
+    // the name. A name with no latin word has no slug of its own, so the
+    // generic one stands in.
+    const upgraded = { ...legacy, kind: 'websocket', mcpServerIds: [], slug: 'agent' };
     const loaded = loadProfiles(storage);
-    expect(loaded).toEqual([{ ...legacy, kind: 'websocket', mcpServerIds: [] }]);
+    expect(loaded).toEqual([upgraded]);
     // The upgrade is written back once — a second load is a plain round-trip.
-    expect(JSON.parse(String(storage.raw))).toEqual([{ ...legacy, kind: 'websocket', mcpServerIds: [] }]);
+    expect(JSON.parse(String(storage.raw))).toEqual([upgraded]);
     expect(loadProfiles(storage)).toEqual(loaded);
   });
 
@@ -160,8 +168,33 @@ describe('loadProfiles', () => {
       JSON.stringify([{ id: 'a', name: 'A', kind: 'stdio', command: 'node', workspace: workspaces.none() }]),
     );
     expect(loadProfiles(storage)).toEqual([
-      { id: 'a', name: 'A', kind: 'stdio', command: 'node', args: '', workspace: workspaces.none(), mcpServerIds: [] },
+      { id: 'a', name: 'A', slug: 'a', kind: 'stdio', command: 'node', args: '', workspace: workspaces.none(), mcpServerIds: [] },
     ]);
+  });
+});
+
+describe('the slug of a family (ADR 0010)', () => {
+  it('takes lowercase letters, digits and dashes from the name', () => {
+    expect(slugify('Principal Agent')).toBe('principal-agent');
+    expect(slugify('code-worker')).toBe('code-worker');
+    expect(slugify('  Home  Assistant  ')).toBe('home-assistant');
+  });
+
+  it('has no slug for a name with no latin word', () => {
+    expect(slugify('旧配置')).toBe('');
+  });
+
+  it('keeps two families apart when their names slug the same way', () => {
+    const taken = new Set<string>();
+    expect(uniqueSlug('agent', taken)).toBe('agent');
+    taken.add('agent');
+    expect(uniqueSlug('agent', taken)).toBe('agent-2');
+    taken.add('agent-2');
+    expect(uniqueSlug('agent', taken)).toBe('agent-3');
+  });
+
+  it('falls back to a generic slug when the name has none', () => {
+    expect(uniqueSlug('', new Set())).toBe('agent');
   });
 });
 
@@ -180,7 +213,7 @@ describe('updateProfileFields', () => {
   it('updates only the target profile and persists', () => {
     const storage = new MemoryStorage();
     const a = profile();
-    const b = profile({ name: 'B' });
+    const b = profile({ name: 'B', slug: 'b' });
     saveProfiles([a, b], storage);
     const updated = updateProfileFields(a.id, { url: 'ws://new:1/acp', workspace: workspaces.none() }, storage);
     expect(updated).toEqual([

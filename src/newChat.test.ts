@@ -5,6 +5,7 @@ import type { AgentProfile } from './profiles';
 const profile = (id: string): AgentProfile => ({
   id,
   name: id,
+  slug: id,
   kind: 'websocket',
   url: `wss://door/${id}`,
   workspace: { kind: 'none' },

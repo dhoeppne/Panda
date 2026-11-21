@@ -1,9 +1,10 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { ArrowLeft, Menu } from 'lucide-react';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar, sessionRowLabel } from './components/Sidebar';
 import { INTERACTIVE_CONTROL_SELECTOR } from './components/scrollPolicy';
 import { MessageStream } from './components/MessageStream';
+import { SessionLoading } from './components/SessionLoading';
 import { EmptyState } from './components/EmptyState';
 import { AuthGate } from './components/AuthGate';
 import { agentLabel, StatusBar } from './components/StatusBar';
@@ -15,6 +16,7 @@ import {
   useActiveDoc,
   useActiveEffectiveCapabilities,
   useActiveSessions,
+  useActiveSwitching,
   usePanda,
 } from './store';
 import { useForegroundLifecycle, useMainView, useSessionModes } from './projector/hooks';
@@ -30,7 +32,9 @@ import {
   type DrawerDrag,
   type SwipeStart,
 } from './navSwipe';
-import { composerDraftKey, useComposerDrafts } from './composerDrafts';
+import { composerDraftKey, stableComposerDraftKey, newChatDraftKey as familyNewChatDraftKey, useComposerDrafts } from './composerDrafts';
+import { profileIdOfConnection, sameChat, type ChatId } from './chatId';
+import { beginChatRecovery, rememberChatSelection } from './chatRecovery';
 import { resolveNewChatFamily, useNewChat, useProfiles } from './newChat';
 import { FamilyLabel, FamilyPicker } from './components/FamilyPicker';
 import { familyCommandSource, sessionCommandSource, type CommandSource } from './commands';
@@ -57,7 +61,7 @@ export default function App() {
 
 function MainScreen() {
   const route = useHashRoute();
-  const onSettings = route === 'settings';
+  const onSettings = route.kind === 'settings';
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   // The drawer's edge-swipe gesture (navSwipe.ts). The drag lives in a ref:
   // pointermove writes the drawer's geometry to CSS custom properties on the
@@ -175,8 +179,7 @@ function MainScreen() {
   const { t } = useI18n();
   // Foreground session identity (bug hunts #15/#17): swaps with the
   // foreground — different connection, or a different session on it. The
-  // composer keys its draft store by it (a message composed for one agent is
-  // never sent to another), and the message stream is REMOUNTED on it (key):
+  // queue stays scoped to this live connection, and the message stream is REMOUNTED on it (key):
   // flat-item keys (`turn-1-0`…) are identical across sessions, so without
   // the remount one session's expanded cards and scroll-follow mode would
   // leak into the next. Keyed by the UI POINTER, not the connection's settled
@@ -184,17 +187,85 @@ function MainScreen() {
   // anchor is null while the pointer moves between retained documents), and
   // an anchor-keyed key would collapse every offline view onto one bucket.
   const foregroundSessionKey = composerDraftKey(activeConnectionId ?? 'none', activeSessionId);
+  // Text drafts use the family identity so extra connection ids can change on restart.
+  const foregroundDraftKey = stableComposerDraftKey(activeConnectionId ?? 'none', activeSessionId);
 
-  // The new-chat view (navigation redesign): open on New chat, and whenever
-  // no session is foreground while a family exists. The chat is created on
-  // the first send, on the family the picker names.
   const profiles = useProfiles();
-  const newChatOpen = useNewChat((s) => s.open);
+
+  // The chat the route names, and the chat the foreground holds (ADR 0010).
+  // The two are the same id: the route's session id is the agent's own.
+  const routeChat: ChatId | null =
+    route.kind === 'chat' ? { namespace: route.namespace, sessionId: route.sessionId } : null;
+  const foregroundChat: ChatId | null = useMemo(() => {
+    if (activeConnectionId === null || activeSessionId === null) return null;
+    const owner = profileIdOfConnection(activeConnectionId) ?? activeConnectionId;
+    const profile = profiles.find((entry) => entry.id === owner);
+    return { namespace: profile ? profile.slug : activeConnectionId, sessionId: activeSessionId };
+  }, [activeConnectionId, activeSessionId, profiles]);
+  // The route names a chat the foreground does not hold: the route asks for a
+  // chat, and the app is opening it.
+  const routeUnresolved = routeChat !== null && !sameChat(routeChat, foregroundChat);
+  const [failedRoute, setFailedRoute] = useState<ChatId | null>(null);
+  const [routeRetry, setRouteRetry] = useState(0);
+  const routeFailed = routeUnresolved && sameChat(routeChat, failedRoute);
+  const routeFamilyId = routeChat ? profiles.find((profile) => profile.slug === routeChat.namespace)?.id : undefined;
+  const routeConnectionStatus = usePanda((s) =>
+    routeFamilyId ? s.connections[routeFamilyId]?.connection.status ?? null : null,
+  );
+  const routeNeedsAuth = routeConnectionStatus === 'auth_required';
+  const previousRouteConnection = useRef({ family: routeFamilyId, status: routeConnectionStatus });
+
+  useEffect(() => {
+    const previous = previousRouteConnection.current;
+    previousRouteConnection.current = { family: routeFamilyId, status: routeConnectionStatus };
+    // A failed restored chat opens automatically once its connection recovers.
+    // Only a readiness transition retries: a missing chat on an already
+    // connected family must not become a retry loop.
+    if (routeFailed && previous.family === routeFamilyId && previous.status !== 'connected' && routeConnectionStatus === 'connected') {
+      setRouteRetry((attempt) => attempt + 1);
+    }
+  }, [routeFamilyId, routeConnectionStatus, routeFailed]);
+
+  useEffect(() => {
+    // Temporary direct connections cannot be reopened after restarting.
+    const savedFamily = profiles.some((profile) => profile.slug === foregroundChat?.namespace);
+    rememberChatSelection(route, savedFamily ? foregroundChat : null);
+  }, [route, foregroundChat, profiles]);
+
+  // The new-chat view (navigation redesign): the route names it (#/new). The
+  // chat is created on the first send, on the family the picker names.
+  const newChatOpen = route.kind === 'new';
   const newChatFamily = resolveNewChatFamily(useNewChat((s) => s.familyId), profiles);
-  const showNewChat = !onSettings && newChatFamily !== null && (newChatOpen || view === 'onboarding');
+  // A route that names a chat owns the screen while the app opens it (ADR
+  // 0010): the new-chat view must not flash over the chat that is coming.
+  const showNewChat =
+    !onSettings && newChatFamily !== null && (newChatOpen || (view === 'onboarding' && !routeUnresolved));
   const [starting, setStarting] = useState(false);
-  const newChatDraftKey = composerDraftKey('new-chat', null);
-  const foregroundFamily = profiles.find((profile) => profile.id === activeConnectionId) ?? null;
+  const newChatDraftKey = familyNewChatDraftKey(newChatFamily?.id ?? 'none');
+  // An extra connection of a family carries the family's id behind a '#', so
+  // the foreground family is the owner of the foreground connection.
+  const foregroundOwner =
+    activeConnectionId === null ? null : profileIdOfConnection(activeConnectionId) ?? activeConnectionId;
+  const foregroundFamily = profiles.find((profile) => profile.id === foregroundOwner) ?? null;
+
+  // The route opens the chat it names (ADR 0010). It is the one truth: a
+  // link from another device, a pasted link, a click in the sidebar — each
+  // one names a chat, and the app opens it. The family connects, then the
+  // session is loaded on it.
+  useEffect(() => {
+    if (route.kind !== 'chat') return;
+    const id = { namespace: route.namespace, sessionId: route.sessionId };
+    if (sameChat(id, foregroundChat)) return; // it is open already
+    // The requested family's auth gate must finish before session/load.
+    if (routeNeedsAuth) {
+      if (routeFamilyId) live.foreground(routeFamilyId);
+      return;
+    }
+    setFailedRoute(null);
+    // A failed/offline load keeps its requested route. Retry opens that
+    // exact chat instead of falling back to, or creating, a different one.
+    return beginChatRecovery(id, live.openChatRoute, () => setFailedRoute(id));
+  }, [route, foregroundChat, live, routeRetry, routeNeedsAuth, routeFamilyId]);
   // The `/` menu (commands.ts): a new chat has no session yet, so it shows
   // the list the picked family sent at `initialize`.
   const newChatSlot = usePanda((s) => (newChatFamily ? s.connections[newChatFamily.id] : undefined));
@@ -226,7 +297,16 @@ function MainScreen() {
         notifyUser('error', t('newChat.startFailed', { name: newChatFamily.name }));
         return;
       }
-      useNewChat.getState().close();
+      // The route names the new chat (ADR 0010): the chat the family just
+      // made, with the session id the agent minted.
+      const state = usePanda.getState();
+      const owner = state.activeConnectionId
+        ? (profileIdOfConnection(state.activeConnectionId) ?? state.activeConnectionId)
+        : null;
+      const family = profiles.find((entry) => entry.id === owner);
+      if (state.activeSessionId && family) {
+        navigate({ kind: 'chat', namespace: family.slug, sessionId: state.activeSessionId });
+      }
       await controller.send(content);
     })();
   };
@@ -242,6 +322,13 @@ function MainScreen() {
   });
 
   const activeSession = sessions.find((entry) => entry.sessionId === activeSessionId);
+  // The session a switch is loading: the UI pointer still sits on the
+  // session being left (the switch commits only after the replay), so the
+  // header names the target the user clicked while the column waits for it.
+  const switching = useActiveSwitching();
+  const loadingSession = switching
+    ? sessions.find((entry) => entry.sessionId === switching.sessionId)
+    : undefined;
   // On the settings route the header carries the ACTIVE SECTION's title and
   // description (#140): the page-level header inside the column is gone, so
   // the top bar is where "which settings page am I on" answers itself. The
@@ -251,7 +338,11 @@ function MainScreen() {
     ? t(settingsSectionMeta?.titleKey ?? 'settings.title')
     : showNewChat
       ? t('side.newChat')
-      : (activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
+      : routeUnresolved
+        ? t(routeFailed ? 'session.openFailedTitle' : 'session.loading')
+        : (loadingSession
+            ? sessionRowLabel(loadingSession, undefined)
+            : activeSession?.title ?? agentLabel(foregroundFamily?.name ?? null, connection.agentName) ?? t('app.liveSessionTitle'));
   const headerMeta = onSettings
     ? (settingsSectionMeta ? t(settingsSectionMeta.descKey) : null)
     : showNewChat
@@ -301,7 +392,13 @@ function MainScreen() {
                 icon={<ArrowLeft size={16} />}
                 label={t('app.back')}
                 tooltip={t('app.backTooltip')}
-                clickAction={() => navigate('main')}
+                clickAction={() =>
+                  navigate(
+                    foregroundChat
+                      ? { kind: 'chat', namespace: foregroundChat.namespace, sessionId: foregroundChat.sessionId }
+                      : { kind: 'new' },
+                  )
+                }
               />
             )}
             <span className="truncate app-header-title">{headerTitle}</span>
@@ -343,9 +440,20 @@ function MainScreen() {
               }
             />
           </div>
+        ) : routeUnresolved && !(view === 'auth-gate' && foregroundOwner === routeFamilyId) ? (
+          <SessionLoading
+            failed={routeFailed}
+            onRetry={() => setRouteRetry((attempt) => attempt + 1)}
+            onNewChat={() => navigate({ kind: 'new' })}
+          />
         ) : (
           <>
-            {doc.plan && doc.plan.length > 0 && <PlanDock entries={doc.plan} />}
+            {/* The plan dock belongs to the session in view: while a switch
+                loads the next one, the plan of the session being left must
+                not linger above the loading state. */}
+            {view !== 'session-loading' && doc.plan && doc.plan.length > 0 && (
+              <PlanDock entries={doc.plan} />
+            )}
             {/* The auth gate owns the main view for a login challenge AND for
                 the login flow's elicitation while the link stays up (bug
                 hunt #8): mid-connection re-login keeps the old session, and
@@ -360,7 +468,7 @@ function MainScreen() {
                 onResolveElicitation={controller.resolveElicitation}
                 onOpenElicitationUrl={controller.openElicitationUrl}
               />
-            ) : view === 'onboarding' ? (
+            ) : view === 'onboarding' && !routeUnresolved ? (
               // First-run onboarding (#200): no foreground session document
               // to show → the two ways in (connect your own agent / existing
               // agents). A connection still opening its first
@@ -369,6 +477,11 @@ function MainScreen() {
               // disconnect does NOT land here (#218): its retained document
               // stays readable, so the pointer is still set.
               <EmptyState />
+            ) : view === 'session-loading' ? (
+              // A session switch is in flight: the target's history is
+              // replaying over the wire, so the column waits for it instead
+              // of showing the conversation the user just left.
+              <SessionLoading />
             ) : (
               <MessageStream
                 key={foregroundSessionKey}
@@ -417,6 +530,7 @@ function MainScreen() {
               configOptions={doc.configOptions}
               onSetConfigOption={controller.setConfigOption}
               sessionKey={foregroundSessionKey}
+              draftKey={foregroundDraftKey}
               family={foregroundFamily && <FamilyLabel family={foregroundFamily} families={profiles} />}
             />
           </>

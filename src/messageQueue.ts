@@ -3,8 +3,8 @@ import { create } from 'zustand';
 import type { AcpUserContentBlock, SessionDocument } from './protocol/types';
 
 /**
- * Queued messages, keyed like composer drafts (one queue per foreground
- * session, `composerDraftKey`): while a turn runs, Enter in the composer
+ * Queued messages, keyed by the live connection/session (`composerDraftKey`;
+ * durable text drafts have a separate family/session key): while a turn runs, Enter in the composer
  * holds the message here instead of sending it. The drain hook sends the
  * head of the queue each time the session's turn ends, one turn at a time —
  * CONTEXT.md's 运行中 allows at most one pending turn per connection, so the

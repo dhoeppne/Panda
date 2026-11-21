@@ -9,14 +9,14 @@ import { onRemoteChange, syncedStorage } from './settingsSync';
  * the first send, on the family the picker names. `familyId` is a profile
  * id; the last pick is remembered per browser so the next new chat starts
  * on the same family.
+ *
+ * The view itself is a route now (#/new, ADR 0010). This store holds the
+ * family the picker names, and nothing else.
  */
 type NewChatState = {
-  open: boolean;
   familyId: string | null;
-  /** Opens the view; a family id preselects that family (settings CTA). */
-  start(familyId?: string): void;
+  /** Preselects a family (the settings CTA adds one and opens the view). */
   pick(familyId: string): void;
-  close(): void;
 };
 
 const LAST_FAMILY_KEY = 'panda.lastFamily';
@@ -39,17 +39,11 @@ function writeLastFamily(familyId: string): void {
 }
 
 export const useNewChat = create<NewChatState>((set) => ({
-  open: false,
   familyId: readLastFamily(),
-  start: (familyId) => {
-    if (familyId) writeLastFamily(familyId);
-    set((s) => ({ open: true, familyId: familyId ?? s.familyId }));
-  },
   pick: (familyId) => {
     writeLastFamily(familyId);
     set({ familyId });
   },
-  close: () => set({ open: false }),
 }));
 
 // A pull from the settings store replaced the remembered family (settingsSync.ts).

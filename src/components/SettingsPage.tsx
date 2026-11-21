@@ -12,12 +12,15 @@ import {
   newProfileId,
   profileEndpoint,
   saveProfiles,
+  slugify,
+  SLUG_PATTERN,
   subscribeProfiles,
   type AgentProfile,
 } from '../profiles';
 import { testLiveTarget } from '../liveConnections';
 import { useNewChat } from '../newChat';
 import { hasStdioHost } from '../acp/transport/stdioHost';
+import { getWebSocketHost } from '../acp/transport/webSocketHost';
 import {
   loadMcpServers,
   newMcpServerId,
@@ -37,6 +40,10 @@ import { t } from '../i18n';
 import { useI18n } from '../i18n/context';
 import { notifyUser } from '../userNotice';
 import { copyDiagnosticsReport } from './ErrorBoundary';
+import {
+  desktopNotificationsAvailable, notificationsEnabled, setNotificationsEnabled,
+  subscribeNotificationPreference, testDesktopNotification,
+} from '../desktopNotifications';
 import './SettingsPage.css';
 
 /** The settings page's sections (#117) — the single source shared by the
@@ -170,7 +177,44 @@ function GeneralSection() {
         <FontSizeStepper knob="code" />
       </SettingsRow>
       <SyncStatusRow />
+      {desktopNotificationsAvailable() && <NotificationSettingsRow />}
     </section>
+  );
+}
+
+function NotificationSettingsRow() {
+  const { t } = useI18n();
+  const [enabled, setEnabled] = useState(() => notificationsEnabled());
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<'sent' | 'failed' | null>(null);
+  useEffect(() => subscribeNotificationPreference(setEnabled), []);
+  const toggle = () => {
+    setBusy(true);
+    setResult(null);
+    void setNotificationsEnabled(!enabled).then((ok) => {
+      if (!ok) setResult('failed');
+    }).catch(() => setResult('failed')).finally(() => setBusy(false));
+  };
+  const test = () => {
+    setBusy(true);
+    setResult(null);
+    void testDesktopNotification().then(() => setResult('sent'))
+      .catch(() => setResult('failed')).finally(() => setBusy(false));
+  };
+  return (
+    <>
+      <SettingsRow title={t('notifications.title')} description={t('notifications.description')}>
+        <Button variant="secondary" size="sm" isDisabled={busy}
+          label={t(enabled ? 'notifications.disable' : 'notifications.enable')} clickAction={toggle} />
+      </SettingsRow>
+      {enabled && (
+        <SettingsRow title={t('notifications.enabled')} description={t('notifications.help')}>
+          <Button variant="secondary" size="sm" isDisabled={busy}
+            label={t('notifications.test')} clickAction={test} />
+        </SettingsRow>
+      )}
+      {result && <p className="settings-card-desc" role="status">{t(`notifications.${result}`)}</p>}
+    </>
   );
 }
 
@@ -396,8 +440,8 @@ function AgentsSection({ profiles }: { profiles: AgentProfile[] }) {
               clickAction={() => {
                 // Deep link (#221): back to the session view, in a new
                 // chat with the fresh profile picked as its family.
-                navigate('main');
-                useNewChat.getState().start(created.id);
+                useNewChat.getState().pick(created.id);
+                navigate({ kind: 'new' });
                 setCreated(null);
               }}
             />
@@ -909,6 +953,9 @@ function McpForm({ initial, onSave, onCancel, onTextConfig }: {
  * are load-bearing (#121). */
 export type ProfileDraft = {
   name: string;
+  /** The family's namespace in a chat link (ADR 0010). Blank means: take
+   * the name's own slug. */
+  slug: string;
   type: 'websocket' | 'stdio';
   url: string;
   command: string;
@@ -917,10 +964,22 @@ export type ProfileDraft = {
   mcpServerIds: string[];
 };
 /** Field-level validation, shared by unit tests: every key names a field the
- * form must block saving on. */
-export function profileDraftErrors(draft: ProfileDraft): Partial<Record<'name' | 'url' | 'command' | 'path', string>> {
-  const errors: Partial<Record<'name' | 'url' | 'command' | 'path', string>> = {};
+ * form must block saving on. The slug (ADR 0010) is checked against the
+ * other families, so two families never share a namespace. */
+export function profileDraftErrors(
+  draft: ProfileDraft,
+  profiles: AgentProfile[] = [],
+  ownId: string | null = null,
+): Partial<Record<'name' | 'slug' | 'url' | 'command' | 'path', string>> {
+  const errors: Partial<Record<'name' | 'slug' | 'url' | 'command' | 'path', string>> = {};
   if (!draft.name.trim()) errors.name = t('settings.nameRequired');
+  const slug = draft.slug.trim();
+  if (slug) {
+    if (!SLUG_PATTERN.test(slug)) errors.slug = t('settings.slugInvalid');
+    else if (profiles.some((profile) => profile.id !== ownId && profile.slug === slug)) {
+      errors.slug = t('settings.slugTaken');
+    }
+  }
   if (draft.type === 'websocket' && !draft.url.trim()) errors.url = t('settings.endpointRequired');
   if (draft.type === 'stdio' && !draft.command.trim()) errors.command = t('settings.commandRequired');
   if (draft.workspace.kind === 'local-directory' && !draft.workspace.path.trim()) errors.path = t('settings.pathRequired');
@@ -939,6 +998,7 @@ function ProfileForm({ initial, onSave, onCancel }: {
   const stdioAvailable = hasStdioHost();
   const [draft, setDraft] = useState<ProfileDraft>(() => ({
     name: initial?.name ?? '',
+    slug: initial?.slug ?? '',
     type: initial?.kind ?? 'websocket',
     url: initial?.kind === 'websocket' ? initial.url : '',
     command: initial?.kind === 'stdio' ? initial.command : '',
@@ -954,7 +1014,9 @@ function ProfileForm({ initial, onSave, onCancel }: {
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>(() => loadMcpServers());
   useEffect(() => subscribeMcpServers(setMcpServers), []);
   const [showErrors, setShowErrors] = useState(false);
-  const errors = profileDraftErrors(draft);
+  // The other families, so the slug stays unique among them.
+  const profiles = useMemo(() => loadProfiles(), []);
+  const errors = profileDraftErrors(draft, profiles, initial?.id ?? null);
   // 测试连接 (#221): the handshake-then-drop probe's verdict. The run token
   // drops late settles — a second click or an unmounted form must not write
   // a stale verdict over a newer one.
@@ -965,9 +1027,25 @@ function ProfileForm({ initial, onSave, onCancel }: {
     | null
   >(null);
   const testRun = useRef(0);
+  useEffect(() => () => { testRun.current += 1; }, []);
+  const [signIn, setSignIn] = useState<'opening' | 'opened' | null>(null);
+  const serverHost = getWebSocketHost();
+  const openServerSignIn = () => {
+    if (!serverHost) return;
+    setSignIn('opening');
+    const token = ++testRun.current;
+    setTest(null);
+    void serverHost.signIn(draft.url.trim()).then(() => {
+      if (testRun.current === token) setSignIn('opened');
+    }).catch((error: unknown) => {
+      if (testRun.current !== token) return;
+      setSignIn(null);
+      setTest({ state: 'fail', error: error instanceof Error ? error.message : String(error) });
+    });
+  };
   // Astryx TextInput surfaces errors through its status object; they appear
   // only after a rejected submit, never while the user is still typing.
-  const statusOf = (field: 'name' | 'url' | 'command' | 'path') =>
+  const statusOf = (field: 'name' | 'slug' | 'url' | 'command' | 'path') =>
     showErrors && errors[field] ? { type: 'error' as const, message: errors[field] } : undefined;
 
   const set = (patch: Partial<ProfileDraft>) => setDraft((prev) => ({ ...prev, ...patch }));
@@ -994,10 +1072,13 @@ function ProfileForm({ initial, onSave, onCancel }: {
       return;
     }
     const workspace = draftWorkspace();
+    // A blank slug takes the name's own (ADR 0010). The loader keeps the
+    // list free of duplicates; here the form blocks the collision.
+    const slug = draft.slug.trim() || slugify(draft.name);
     onSave(
       draft.type === 'stdio'
-        ? { id: initial?.id ?? newProfileId(), name: draft.name.trim(), kind: 'stdio', command: draft.command.trim(), args: draft.args.trim(), workspace, mcpServerIds: draft.mcpServerIds }
-        : { id: initial?.id ?? newProfileId(), name: draft.name.trim(), kind: 'websocket', url: draft.url.trim(), workspace, mcpServerIds: draft.mcpServerIds },
+        ? { id: initial?.id ?? newProfileId(), name: draft.name.trim(), slug, kind: 'stdio', command: draft.command.trim(), args: draft.args.trim(), workspace, mcpServerIds: draft.mcpServerIds }
+        : { id: initial?.id ?? newProfileId(), name: draft.name.trim(), slug, kind: 'websocket', url: draft.url.trim(), workspace, mcpServerIds: draft.mcpServerIds },
     );
   };
 
@@ -1010,6 +1091,14 @@ function ProfileForm({ initial, onSave, onCancel }: {
         placeholder={t('settings.profileNamePlaceholder')}
         status={statusOf('name')}
         hasAutoFocus={!initial}
+      />
+      <TextInput
+        label={t('settings.profileSlug')}
+        value={draft.slug}
+        onChange={(slug) => set({ slug })}
+        placeholder={slugify(draft.name) || t('settings.profileSlugPlaceholder')}
+        status={statusOf('slug')}
+        description={t('settings.profileSlugHint')}
       />
       <Selector
         label={t('settings.profileType')}
@@ -1112,6 +1201,15 @@ function ProfileForm({ initial, onSave, onCancel }: {
       </div>
       {initial && <p className="settings-card-desc">{t('settings.editNote')}</p>}
       <div className="settings-form-actions">
+        {serverHost && draft.type === 'websocket' && (
+          <Button
+            variant="secondary"
+            size="sm"
+            label={t('settings.serverSignIn')}
+            isDisabled={signIn === 'opening' || test?.state === 'running' || !draft.url.trim()}
+            clickAction={openServerSignIn}
+          />
+        )}
         {/* 测试连接 (#221): an endpoint typo should surface here, not at the
             first session. Handshake-then-drop — no slot, no sidebar trace. */}
         <Button
@@ -1119,12 +1217,15 @@ function ProfileForm({ initial, onSave, onCancel }: {
           size="sm"
           label={test?.state === 'running' ? t('settings.testConnectionRunning') : t('settings.testConnection')}
           icon={<PlugZap size={12} />}
-          isDisabled={test?.state === 'running' || (draft.type === 'websocket' ? !draft.url.trim() : !draft.command.trim())}
+          isDisabled={signIn === 'opening' || test?.state === 'running' || (draft.type === 'websocket' ? !draft.url.trim() : !draft.command.trim())}
           clickAction={runTest}
         />
         <Button variant="primary" size="sm" label={initial ? t('settings.save') : t('settings.create')} clickAction={submit} />
         <Button variant="ghost" size="sm" label={t('settings.cancel')} clickAction={onCancel} />
       </div>
+      {signIn === 'opened' && (
+        <p className="settings-card-desc" role="status">{t('settings.serverSignInHelp')}</p>
+      )}
       {test?.state === 'ok' && (
         <p className="settings-test-result settings-test-result--ok">
           {t('settings.testOk', { agent: test.agentName, v: String(test.protocolVersion) })}

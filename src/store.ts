@@ -690,7 +690,7 @@ export function connectionStorePort(connectionId: string): ConnectionStorePort {
         };
       });
       // Its composer draft (possibly holding base64 image data) goes with it.
-      useComposerDrafts.getState().clearSessionDrafts(sessionId);
+      useComposerDrafts.getState().clearSessionDrafts(sessionId, connectionId);
       // So does its message queue: nothing may send into a deleted session.
       useMessageQueue.getState().clearSessionQueues(sessionId);
     },

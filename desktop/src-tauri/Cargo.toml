@@ -19,10 +19,16 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "time", "sync", "macros", "rt"] }
 base64 = "0.22"
 tauri-plugin-opener = "2.2.0"
+tauri-plugin-notification = "=2.8.1"
+futures-util = { version = "0.3", features = ["sink"] }
+tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 
 [target.'cfg(unix)'.dependencies]
 # SIGTERM-based graceful teardown; Windows terminates via Child::kill.
 libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
 
 [profile.release]
 strip = true

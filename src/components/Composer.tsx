@@ -114,7 +114,7 @@ export function submitAction(input: {
   return input.canQueue ? 'queue' : 'none';
 }
 
-export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attachAccept, canStop, onStop, modes, onSetMode, commandSource, configOptions, onSetConfigOption, sessionKey, family }: {
+export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attachAccept, canStop, onStop, modes, onSetMode, commandSource, configOptions, onSetConfigOption, sessionKey, draftKey = sessionKey, family }: {
   /** The family chip (picker in a new chat, locked label in an existing one). */
   family?: React.ReactNode;
   onSend: (content: AcpUserContentBlock[]) => void;
@@ -147,22 +147,22 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
   /** Agent-advertised session config options; null/[] hides the settings entry. */
   configOptions: AcpConfigOption[] | null;
   onSetConfigOption: (configId: string, value: string | boolean) => void;
-  /** Foreground session identity (bug hunt #15): text, attachments and
-   * errors live in the per-session draft store under this key, so drafts
-   * never cross sessions. */
+  /** Live connection/session identity for the queue, and default draft key. */
   sessionKey: string;
+  /** Durable family/session identity; live queues keep their connection-specific sessionKey. */
+  draftKey?: string;
 }) {
   const { t } = useI18n();
-  const draft = useComposerDrafts((s) => draftForKey(s, sessionKey));
+  const draft = useComposerDrafts((s) => draftForKey(s, draftKey));
   const { value, attachments, attachmentError } = draft;
   const queue = useMessageQueue((s) => queueForKey(s, sessionKey));
   const setDraft = (patch: Partial<{ value: string; attachments: FileAttachment[]; attachmentError: string | null }>) =>
-    useComposerDrafts.getState().setDraft(sessionKey, patch);
+    useComposerDrafts.getState().setDraft(draftKey, patch);
   // Function-form attachment update reads through the store (not the render
   // closure) — addFiles resolves asynchronously, where `draft` may be stale.
   const setAttachments = (update: (current: FileAttachment[]) => FileAttachment[]) => {
-    const current = useComposerDrafts.getState().drafts[sessionKey]?.attachments ?? [];
-    useComposerDrafts.getState().setDraft(sessionKey, { attachments: update(current) });
+    const current = useComposerDrafts.getState().drafts[draftKey]?.attachments ?? [];
+    useComposerDrafts.getState().setDraft(draftKey, { attachments: update(current) });
   };
   const [commandIndex, setCommandIndex] = useState(0);
   const [commandsDismissed, setCommandsDismissed] = useState(false);
@@ -229,7 +229,7 @@ export function Composer({ onSend, disabled, inputLocked, canQueue, hint, attach
     if (action === 'none') return;
     if (action === 'send') onSend(promptContent);
     else useMessageQueue.getState().enqueue(sessionKey, promptContent);
-    useComposerDrafts.getState().clearDraft(sessionKey);
+    useComposerDrafts.getState().clearDraft(draftKey);
   };
 
   const addFiles = async (files: File[]) => {

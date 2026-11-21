@@ -46,6 +46,7 @@ import { toWireMcpServers, type McpServerConfig } from '../mcpServers';
 import { PANDA_HOST_CAPABILITIES, effectiveCapability, type AgentCapabilityDeclarations, type CapabilityKey, type EffectiveCapability } from '../capabilities';
 import { alwaysAskPolicy, denyResolution, UNKNOWN_POLICY_CONTEXT, type PermissionDecision } from '../policy';
 import { notifyUser } from '../userNotice';
+import type { ClientAttention } from '../desktopNotifications';
 
 /**
  * Live ACP client (Phase 1+2): speaks v1 ACP over an injected `AcpTransport`
@@ -86,6 +87,8 @@ export type SessionSummary = {
 };
 
 export type LiveClientHandlers = {
+  /** Host-only attention event; never synthesized from history replay. */
+  onAttention?(event: ClientAttention): void;
   onUpdate(update: AcpSessionUpdate): void;
   onConnected(info: { agentName: string; protocolVersion: number }): void;
   onSessionId(sessionId: string, cwd: string): void;
@@ -360,6 +363,9 @@ function permissionActionKey(request: RequestPermissionRequest): string {
   ]);
 }
 
+// Recreated clients can reuse a connection ID; their attention IDs must not.
+let nextAttentionSource = 0;
+
 export class LiveAcpClient {
   private readonly handlers: LiveClientHandlers;
   /** Host-side permission policy (issue #22); default hands every decision to the user. */
@@ -384,6 +390,9 @@ export class LiveAcpClient {
     rewind: false,
   };
   private pendingPrompt: Promise<unknown> | null = null;
+  private readonly attentionSource = ++nextAttentionSource;
+  private attentionSequence = 0;
+  private readonly cancelledPrompts = new WeakSet<object>();
   private echo: EchoReconciler | null = null;
   /**
    * Concurrent `session/request_permission` waiters (issue #18), keyed
@@ -1067,8 +1076,16 @@ export class LiveAcpClient {
       prompt: wirePrompt,
     });
     this.pendingPrompt = prompt;
+    const attentionSessionId = this.sessionId;
+    const attentionId = `${this.attentionSource}:turn:${generation}:${++this.attentionSequence}`;
     try {
       const response = await prompt;
+      if (response.stopReason === 'end_turn' && generation === this.connectionGeneration && !this.cancelledPrompts.has(prompt)) {
+        this.emitAttention({
+          id: attentionId, kind: 'completed', sessionId: attentionSessionId,
+          isCurrent: () => generation === this.connectionGeneration,
+        });
+      }
       console.info(`[panda/acp] turn complete: ${response.stopReason}`);
       // end_turn is the unremarkable ending; every other stop reason is a
       // user-visible fact about why the turn stopped (refusal, limits,
@@ -1188,6 +1205,7 @@ export class LiveAcpClient {
       console.warn('[panda/acp] cancel ignored: no prompt turn in flight');
       return;
     }
+    this.cancelledPrompts.add(this.pendingPrompt);
     this.connection.agent
       .notify(methods.agent.session.cancel, { sessionId: this.sessionId })
       .catch((err) => console.error('[panda/acp] session/cancel failed', err));
@@ -1701,8 +1719,19 @@ export class LiveAcpClient {
       };
       signal.addEventListener('abort', settleAborted);
       if (signal.aborted) settleAborted();
-      else this.convergeStatus();
+      else {
+        this.convergeStatus();
+        this.emitAttention({
+          id: `${this.attentionSource}:permission:${++this.attentionSequence}`, kind: 'approval', sessionId: params.sessionId,
+          isCurrent: () => this.permissionWaiters.get(key) === waiter && !signal.aborted,
+        });
+      }
     });
+  }
+
+  private emitAttention(event: ClientAttention): void {
+    try { this.handlers.onAttention?.(event); }
+    catch { console.warn('[panda/acp] attention delivery failed'); }
   }
 
   /**

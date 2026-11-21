@@ -26,6 +26,7 @@ import type { McpServerConfig } from '../mcpServers';
 import type { PermissionDecision } from '../policy';
 import { StreamTransport } from './transport/StreamTransport';
 import type { AcpTransport } from './transport/AcpTransport';
+import type { ClientAttention } from '../desktopNotifications';
 import { subscribeUserNotices } from '../userNotice';
 import {
   connectionStorePort,
@@ -48,6 +49,7 @@ type PromptHandler = (
 ) => Promise<{ stopReason: 'end_turn' | 'cancelled' | 'refusal' | 'max_tokens' | 'max_turn_requests' }>;
 
 type Records = {
+  attention: ClientAttention[];
   updates: AcpSessionUpdate[];
   statuses: SessionStatus[];
   connected: { agentName: string; protocolVersion: number }[];
@@ -133,6 +135,7 @@ type FakeAgentOptions = {
   /** Sees every JSON-RPC message the fake agent sends (wire-level assertions). */
   spyAgentOutgoing?: (message: AnyMessage) => void;
   onPrompt?: PromptHandler;
+  onAttention?: (event: ClientAttention) => void;
   /** Host policy injected into the client (issue #22); default = always ask. */
   clientPolicy?: (request: RequestPermissionRequest) => PermissionDecision;
   /** MCP server source injected into the client (issue #71); default = none. */
@@ -235,6 +238,7 @@ function silentHandlers(onDisconnected: (reason: string | null) => void): LiveCl
 
 async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
   const records: Records = {
+    attention: [],
     updates: [],
     statuses: [],
     connected: [],
@@ -253,6 +257,7 @@ async function setup(opts: FakeAgentOptions = {}): Promise<Harness> {
     switchLog: [],
   };
   const handlers: LiveClientHandlers = {
+    onAttention: (event) => { records.attention.push(event); opts.onAttention?.(event); },
     onUpdate: (update) => {
       records.updates.push(update);
       // Status rides the update stream (#55) — keep the statuses record so
@@ -535,6 +540,7 @@ describe('LiveAcpClient', () => {
       });
       await h.acpClient.send([{ type: 'text', text: 'hi' }]);
       expect(h.updates).toContainEqual({ sessionUpdate: 'turn_notice', stopReason });
+      expect(h.attention).toEqual([]);
       h.closeAll();
     }
   });
@@ -543,6 +549,75 @@ describe('LiveAcpClient', () => {
     const h = await setup({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
     await h.acpClient.send([{ type: 'text', text: 'hi' }]);
     expect(h.updates.filter((u) => u.sessionUpdate === 'turn_notice')).toEqual([]);
+    expect(h.attention).toHaveLength(1);
+    expect(h.attention[0]).toMatchObject({ kind: 'completed', sessionId: h.sessionIds.at(-1) });
+    h.closeAll();
+  });
+
+  it('does not emit completion attention if a cancelled turn still returns end_turn', async () => {
+    let finish!: () => void;
+    let started = false;
+    const gate = new Promise<void>((done) => { finish = done; });
+    const h = await setup({ onPrompt: async () => { started = true; await gate; return { stopReason: 'end_turn' }; } });
+    const sending = h.acpClient.send([{ type: 'text', text: 'start' }]);
+    await waitFor(() => started);
+    h.acpClient.cancel();
+    finish();
+    await sending;
+    expect(h.attention).toEqual([]);
+    h.closeAll();
+  });
+
+  it('keeps attention identities distinct when clients are recreated for the same session', async () => {
+    const first = await setup();
+    await first.acpClient.send([{ type: 'text', text: 'first' }]);
+    first.closeAll();
+    const second = await setup();
+    await second.acpClient.send([{ type: 'text', text: 'second' }]);
+    expect(first.attention[0]!.sessionId).toBe(second.attention[0]!.sessionId);
+    expect(first.attention[0]!.id).not.toBe(second.attention[0]!.id);
+    second.closeAll();
+  });
+
+  it('finishes a successful turn even if its attention handler throws', async () => {
+    const errors = vi.spyOn(console, 'error');
+    const h = await setup({ onAttention: () => { throw new Error('host failed'); } });
+    await expect(h.acpClient.send([{ type: 'text', text: 'hi' }])).resolves.toBeUndefined();
+    expect(h.statuses.at(-1)).toBe('idle');
+    expect(h.attention).toHaveLength(1);
+    expect(errors).not.toHaveBeenCalled();
+    h.closeAll();
+    errors.mockRestore();
+  });
+
+  it('does not emit completion attention when the prompt RPC fails', async () => {
+    const h = await setup({ onPrompt: async () => { throw new Error('prompt failed'); } });
+    await h.acpClient.send([{ type: 'text', text: 'start' }]);
+    expect(h.attention).toEqual([]);
+    h.closeAll();
+  });
+
+  it('does not emit attention for replayed history', async () => {
+    const h = await setup({ capabilities: { loadSession: true }, history: {
+      'history-session': [{ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'old reply' } }],
+    } });
+    await h.acpClient.loadSession('history-session', '/tmp/project');
+    expect(h.attention).toEqual([]);
+    h.closeAll();
+  });
+
+  it('emits approval attention only while its permission waiter remains pending', async () => {
+    const ref: { h?: Harness } = {};
+    const h = await setup({ onPrompt: async (ctx) => { await askPermission(ctx, ref.h!); return { stopReason: 'end_turn' }; } });
+    ref.h = h;
+    const sending = h.acpClient.send([{ type: 'text', text: 'edit' }]);
+    await waitFor(() => h.attention.some((event) => event.kind === 'approval'));
+    const approval = h.attention.find((event) => event.kind === 'approval')!;
+    expect(approval.isCurrent()).toBe(true);
+    h.acpClient.resolvePermission('edit-1', 'allow_once');
+    await sending;
+    expect(approval.isCurrent()).toBe(false);
+    expect(h.attention.filter((event) => event.kind === 'completed')).toHaveLength(1);
     h.closeAll();
   });
 
@@ -742,6 +817,7 @@ describe('LiveAcpClient', () => {
 
     const turn = h.acpClient.send([{ type: 'text', text: 'edit it' }]);
     await turn;
+    expect(h.attention.filter((event) => event.kind === 'approval')).toEqual([]);
 
     // Wire: the agent's reject_once option, answered without the user.
     expect(h.agentState.permissionResponses).toEqual([
@@ -2097,6 +2173,7 @@ describe('LiveAcpClient', () => {
     });
     await h.acpClient.send([{ type: 'text', text: 'go' }]);
     const events = permissionEvents(h);
+    expect(h.attention.filter((event) => event.kind === 'approval')).toHaveLength(1);
     expect(events).toHaveLength(4);
     expect(events[3]).toEqual({
       sessionUpdate: 'permission_resolved',

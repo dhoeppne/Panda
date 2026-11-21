@@ -7,6 +7,7 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { StatusDot } from '@astryxdesign/core/StatusDot';
 import {
   ChevronDown,
+  Link2,
   ChevronRight,
   Folder,
   FolderOpen,
@@ -23,25 +24,26 @@ import {
   X,
 } from 'lucide-react';
 import pandaBadge from '../assets/brand/panda-badge.png';
-import { usePanda, type SessionEntry } from '../store';
+import { usePanda, type ConnectionState, type SessionEntry } from '../store';
 import type { SessionDocument } from '../protocol/types';
 import { connectionLifecycle, isLinkUp, type ConnectionPhase } from '../projector/connectionLifecycle';
 import { reconcileProfileSlots } from '../liveConnections';
+import { chatKey, namespaceOfConnection, profileIdOfConnection } from '../chatId';
 import { effectiveCapability, PANDA_HOST_CAPABILITIES } from '../capabilities';
 import { useI18n } from '../i18n/context';
 import { formatRelativeTime } from '../relativeTime';
 import type { AgentProfile } from '../profiles';
-import { navigate, useHashRoute } from '../routes';
+import { navigate, routeHash, useHashRoute } from '../routes';
+import { copyText } from '../diagnostics';
 import { notifyUser } from '../userNotice';
 import { workspaceLabel } from '../workspace';
-import { useNewChat, useProfiles } from '../newChat';
+import { useProfiles } from '../newChat';
 import {
   addFolder,
   addSection,
   buildNavTree,
   forgetChat,
   loadNavLayout,
-  navKey,
   newNavId,
   placeChat,
   removeFolder,
@@ -64,7 +66,7 @@ import { FamilyBadge } from './FamilyPicker';
 import './Sidebar.css';
 
 /** One chat of the merged list, with what the row needs to render. */
-type ChatRow = NavRow & { entry: SessionEntry; familyName: string };
+type ChatRow = NavRow & { entry: SessionEntry; familyName: string; holds: boolean; namespace: string };
 
 /** The persisted layout, kept current with storage. Writes that storage
  * rejects tell the user; the in-memory view still moves. */
@@ -83,38 +85,104 @@ function useNavLayout(): [NavLayout, (next: NavLayout) => void] {
 }
 
 /**
+ * The family's dot: the phase of the first connection of the family that is
+ * up, and whether any connection of the family runs a turn. A family may
+ * hold more than one connection (ADR 0009), so the dot looks at all of them.
+ */
+export function familyLifecycle(slots: ConnectionState[]): {
+  phase: ConnectionPhase;
+  running: boolean;
+  error: string | null;
+} {
+  const lifecycles = slots.map((slot) => connectionLifecycle(slot));
+  const chosen = lifecycles.find((lifecycle) => isLinkUp(lifecycle.phase)) ?? lifecycles[0];
+  return {
+    phase: chosen?.phase ?? ('disconnected' as ConnectionPhase),
+    running: lifecycles.some((lifecycle) => lifecycle.running),
+    error: chosen?.error ?? null,
+  };
+}
+
+/**
  * The merged chat list: every session of every family connection, keyed by
- * endpoint + session id. The selector returns slot ids, endpoints and the
- * session-list refs only, so streaming document updates do not re-render
- * the whole list (useShallow compares element by element).
+ * endpoint + session id.
+ *
+ * Two connections of one family share the endpoint and therefore the
+ * session list, so the same chat arrives twice. One row per chat: the
+ * connection that holds the session wins, because that is the link the
+ * click must foreground.
+ */
+export function chatRows(
+  connections: ChatRowSource[],
+  profiles: AgentProfile[],
+): ChatRow[] {
+  const rows = new Map<string, ChatRow>();
+  for (const { connectionId, endpoint, heldSessionId, sessions } of connections) {
+    if (!endpoint) continue;
+    const owner = profileIdOfConnection(connectionId) ?? connectionId;
+    const familyName = profiles.find((profile) => profile.id === owner)?.name ?? endpoint;
+    // The namespace of the family: the slug of its profile, or the id of a
+    // 临时直连. It is the name of the chat in a route (ADR 0010).
+    const namespace = namespaceOfConnection(connectionId, profiles);
+    for (const entry of sessions) {
+      const key = chatKey({ namespace, sessionId: entry.sessionId });
+      const known = rows.get(key);
+      // The connection that holds the session wins over a sibling that only
+      // lists it: the click must foreground the link that owns the session.
+      if (known && (known.holds || heldSessionId !== entry.sessionId)) continue;
+      rows.set(key, {
+        key,
+        connectionId,
+        sessionId: entry.sessionId,
+        cwd: entry.cwd,
+        updatedAt: entry.updatedAt,
+        entry,
+        familyName,
+        namespace,
+        holds: heldSessionId === entry.sessionId,
+      });
+    }
+  }
+  return [...rows.values()];
+}
+
+/** What one connection contributes to the merged list. */
+export type ChatRowSource = {
+  connectionId: string;
+  endpoint: string | null;
+  /** The session the connection holds, or null. */
+  heldSessionId: string | null;
+  sessions: SessionEntry[];
+};
+
+/**
+ * The merged chat list of the sidebar. The selector returns slot ids,
+ * endpoints, the settled session id and the session-list refs only, so
+ * streaming document updates do not re-render the whole list (useShallow
+ * compares element by element).
  */
 function useChatRows(profiles: AgentProfile[]): ChatRow[] {
   const flat = usePanda(
     useShallow((s) =>
-      Object.entries(s.connections).flatMap(([id, slot]) => [id, slot.connection.url, slot.sessions] as const),
+      Object.entries(s.connections).flatMap(([id, slot]) => [
+        id,
+        slot.connection.url,
+        slot.connection.sessionId,
+        slot.sessions,
+      ] as const),
     ),
   );
   return useMemo(() => {
-    const rows: ChatRow[] = [];
-    for (let index = 0; index < flat.length; index += 3) {
-      const connectionId = flat[index] as string;
-      const endpoint = flat[index + 1] as string | null;
-      const sessions = flat[index + 2] as SessionEntry[];
-      if (!endpoint) continue;
-      const familyName = profiles.find((profile) => profile.id === connectionId)?.name ?? endpoint;
-      for (const entry of sessions) {
-        rows.push({
-          key: navKey(endpoint, entry.sessionId),
-          connectionId,
-          sessionId: entry.sessionId,
-          cwd: entry.cwd,
-          updatedAt: entry.updatedAt,
-          entry,
-          familyName,
-        });
-      }
+    const sources: ChatRowSource[] = [];
+    for (let index = 0; index < flat.length; index += 4) {
+      sources.push({
+        connectionId: flat[index] as string,
+        endpoint: flat[index + 1] as string | null,
+        heldSessionId: flat[index + 2] as string | null,
+        sessions: flat[index + 3] as SessionEntry[],
+      });
     }
-    return rows;
+    return chatRows(sources, profiles);
   }, [flat, profiles]);
 }
 
@@ -136,9 +204,9 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
   onSelectSettingsSection(id: SettingsSectionId): void;
 }) {
   const { t } = useI18n();
-  const onSettings = useHashRoute() === 'settings';
+  const onSettings = useHashRoute().kind === 'settings';
   const exitSettings = () => {
-    if (onSettings) navigate('main');
+    if (onSettings) navigate({ kind: 'new' });
   };
   const profiles = useProfiles();
   const familyNames = useMemo(() => profiles.map((profile) => profile.name), [profiles]);
@@ -155,7 +223,7 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState<{ kind: 'section' } | { kind: 'folder'; sectionId: string } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const newChatOpen = useNewChat((s) => s.open);
+  const newChatOpen = useHashRoute().kind === 'new';
 
   const closeNav = () => {
     exitSettings();
@@ -163,7 +231,8 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
   };
 
   const startNewChat = () => {
-    useNewChat.getState().start();
+    // The new-chat view is a route now (ADR 0010): #/new.
+    navigate({ kind: 'new' });
     closeNav();
   };
 
@@ -396,7 +465,7 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
               className="nav-family"
               onClick={() => {
                 onSelectSettingsSection('agents');
-                navigate('settings');
+                navigate({ kind: 'settings' });
                 onMobileClose();
               }}
             >
@@ -422,7 +491,7 @@ export function Sidebar({ live, mobileOpen, onMobileClose, settingsSection, onSe
           label={onSettings ? t('side.backToSession') : t('side.settings')}
           tooltip={onSettings ? t('side.backToSessionTooltip') : t('side.settingsTooltip')}
           clickAction={() => {
-            navigate(onSettings ? 'main' : 'settings');
+            navigate(onSettings ? { kind: 'new' } : { kind: 'settings' });
             onMobileClose();
           }}
         />
@@ -647,6 +716,14 @@ function rowFacts(row: ChatRow, layout: NavLayout): (s: ReturnType<typeof usePan
   };
 }
 
+/** The link to a chat: the app's address and the chat's route (ADR 0010). */
+export function chatLink(row: { namespace: string; sessionId: string }, base?: string): string {
+  const hash = routeHash({ kind: 'chat', namespace: row.namespace, sessionId: row.sessionId });
+  const address =
+    base ?? (typeof window === 'undefined' ? '' : `${window.location.origin}${window.location.pathname}`);
+  return `${address}${hash}`;
+}
+
 const DISABLED_LABELS = {
   busy: 'side.disabled.busy',
   offline: 'side.disabled.offline',
@@ -674,8 +751,9 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
   const isRenaming = renaming === `chat:${row.key}`;
 
   const open = () => {
-    useNewChat.getState().close();
-    if (!facts.foreground) live.openSession(row.connectionId, row.sessionId, row.cwd);
+    // The route names the chat (ADR 0010); the route opens it. The route
+    // is the one truth, so the click only names the chat.
+    navigate({ kind: 'chat', namespace: row.namespace, sessionId: row.sessionId });
     onOpened();
   };
 
@@ -744,6 +822,17 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
                 <MenuItem icon={<Pencil size={14} />} onSelect={() => { close(); setRenaming(`chat:${row.key}`); }}>
                   {t('side.rename')}
                 </MenuItem>
+                <MenuItem
+                  icon={<Link2 size={14} />}
+                  onSelect={() => {
+                    close();
+                    void copyText(chatLink(row)).then((ok) => {
+                      notifyUser(ok ? 'info' : 'error', t(ok ? 'side.linkCopied' : 'side.linkCopyFailed'));
+                    });
+                  }}
+                >
+                  {t('side.copyLink')}
+                </MenuItem>
                 <hr className="nav-menu-sep" />
                 <div className="nav-menu-head">{t('side.moveTo')}</div>
                 <MenuItem indent={1} checked={placement === null} onSelect={() => { close(); move(null); }}>
@@ -787,6 +876,9 @@ function ChatRowItem({ row, layout, commit, live, familyNames, newChatOpen, rena
                           onAction: () => {
                             live.deleteSession(row.connectionId, row.sessionId);
                             commit(forgetChat(layout, row.key));
+                            // The route leaves the chat it named (ADR 0010):
+                            // the session is on its way out.
+                            navigate({ kind: 'new' });
                             deleteAlert.hide();
                           },
                         });
@@ -940,16 +1032,18 @@ function FamilyStatus({ profile, live, onActivated }: {
   const { t } = useI18n();
   const facts = usePanda(
     useShallow((s) => {
-      const slot = s.connections[profile.id];
-      if (!slot) return { phase: 'disconnected' as ConnectionPhase, running: false, error: null as string | null };
-      const lifecycle = connectionLifecycle(slot);
-      return { phase: lifecycle.phase, running: lifecycle.running, error: lifecycle.error };
+      // A family may hold more than one connection. The dot follows the
+      // family's own connection, and any connection of the family that runs a
+      // turn lights it.
+      const slots = Object.entries(s.connections)
+        .filter(([id]) => id === profile.id || profileIdOfConnection(id) === profile.id)
+        .map(([, slot]) => slot);
+      return familyLifecycle(slots);
     }),
   );
   const up = isLinkUp(facts.phase);
   const act = () => {
     if (up || facts.phase === 'connecting') return;
-    useNewChat.getState().close();
     if (facts.phase === 'error') live.reconnectForeground({ connectionId: profile.id });
     else if (facts.phase === 'auth-required') live.foreground(profile.id);
     else live.connectProfile(profile);

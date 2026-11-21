@@ -1,5 +1,7 @@
 # Agent 配置支持多连接并行
 
+> **2026-11-20 更新**：[ADR 0009](0009-a-family-holds-more-than-one-connection.md) 补充了「多连接」的另一种形状——同一个家庭的两条连接。本文其余结论继续有效。
+
 取代 ADR 0001 中「多连接并行明确排除」的决定：Panda 将支持同时维持多条 Agent 配置的活跃连接，各自持有独立会话；UI 仍是单一前台会话，其余连接在后台接收通知。
 
 决策依据（2026-09 对 react-acp、acp-components 的源码核实，详见 `docs/research/panda-acp-architecture-conclusion.md`）：

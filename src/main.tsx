@@ -11,7 +11,10 @@ import { loadThemeId, resolveTheme, subscribeTheme } from './theme';
 import { applyFontSize, loadFontSizePair } from './fontSize';
 import { bootSettingsSync } from './settingsSync';
 import { I18nProvider } from './i18n/context';
-import { parseDevPage } from './routes';
+import { navigate, parseDevPage } from './routes';
+import { startupChatRoute } from './chatRecovery';
+import { installConnectionRecovery } from './connectionRecovery';
+import { recoverFailedConnections } from './liveConnections';
 
 // Earliest possible (#105): the ring must catch startup errors too.
 installConsoleTap();
@@ -26,7 +29,9 @@ applyFontSize(loadFontSizePair());
 // @tauri-apps/api with it) out of the browser bundle — the chunk only loads
 // inside the Tauri shell, where it registers the stdio transport factory.
 if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-  void import('./desktop/boot').then((m) => m.bootDesktop());
+  // Restore/connect only after the native transport factories are ready.
+  const { bootDesktop } = await import('./desktop/boot');
+  await bootDesktop();
 }
 
 // Settings sync (server/README.md): the first pull runs before the first
@@ -36,6 +41,14 @@ if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
 // apply again because the pull may have replaced them.
 await bootSettingsSync();
 applyFontSize(loadFontSizePair());
+
+// The app's bundled launch URL has no hash. Restore this device's last chat
+// after profiles have loaded, before rendering the first route.
+const savedChat = startupChatRoute(window.location.hash);
+if (savedChat) navigate(savedChat);
+
+const stopConnectionRecovery = installConnectionRecovery(recoverFailedConnections);
+if (import.meta.hot) import.meta.hot.dispose(stopConnectionRecovery);
 
 const root = createRoot(document.getElementById('root')!);
 

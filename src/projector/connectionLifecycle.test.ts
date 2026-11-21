@@ -237,3 +237,19 @@ describe('mainView (断连后留存文档可读, #218)', () => {
     ).toBe('auth-gate');
   });
 });
+
+// -- mainView: a session switch owns the column while it loads ----------------
+
+describe('mainView (a session switch in flight)', () => {
+  it('shows the loading surface, not the session being left', () => {
+    expect(view({ phase: 'switching-session' })).toBe('session-loading');
+  });
+
+  it('outranks onboarding — the pointer can still be empty mid-switch', () => {
+    expect(view({ phase: 'switching-session', activeSessionId: null })).toBe('session-loading');
+  });
+
+  it('the auth gate still outranks the loading surface', () => {
+    expect(view({ phase: 'auth-required', activeSessionId: null })).toBe('auth-gate');
+  });
+});

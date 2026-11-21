@@ -14,6 +14,18 @@
  * Interpolation: `{name}` placeholders, filled by t(key, { name: value }).
  */
 export const messages = {
+  'notifications.title': { en: 'Desktop notifications', zh: '桌面通知' },
+  'notifications.description': { en: 'Notify when an agent finishes or needs approval while Panda is running.', zh: 'Panda 运行时，在 agent 完成任务或需要批准时通知。' },
+  'notifications.enable': { en: 'Enable notifications', zh: '启用通知' },
+  'notifications.disable': { en: 'Disable notifications', zh: '关闭通知' },
+  'notifications.enabled': { en: 'Notifications enabled', zh: '通知已启用' },
+  'notifications.help': { en: 'If no alert appears, allow Panda in macOS System Settings → Notifications and check Focus. Click an agent notification to open its chat.', zh: '如果没有显示通知，请在 macOS 系统设置 → 通知中允许 Panda，并检查专注模式。点击 agent 通知可打开对应会话。' },
+  'notifications.test': { en: 'Test notification', zh: '测试通知' },
+  'notifications.sent': { en: 'Test notification requested. Check your desktop notifications.', zh: '已请求发送测试通知，请检查桌面通知。' },
+  'notifications.failed': { en: 'Could not enable or request notifications. Check your system notification settings.', zh: '无法启用或请求通知，请检查系统通知设置。' },
+  'notifications.body.completed': { en: 'Agent finished. Open Panda to view the chat.', zh: 'Agent 已完成。打开 Panda 查看会话。' },
+  'notifications.body.approval': { en: 'Approval needed. Open Panda to review the request.', zh: '需要批准。打开 Panda 查看请求。' },
+  'notifications.body.test': { en: 'Test notification from Panda.', zh: '来自 Panda 的测试通知。' },
   // ---- shell / app frame ----
   'app.closeNav': { en: 'Close navigation', zh: '关闭导航' },
   'app.openNav': { en: 'Open navigation', zh: '打开导航' },
@@ -533,6 +545,11 @@ export const messages = {
   'settings.cancel': { en: 'Cancel', zh: '取消' },
   // 测试连接 (#221): handshake-then-drop verdict on the profile form.
   'settings.testConnection': { en: 'Test connection', zh: '测试连接' },
+  'settings.serverSignIn': { en: 'Sign in to server', zh: '登录服务器' },
+  'settings.serverSignInHelp': {
+    en: 'Finish signing in in the new window, close it, then test the connection here. Your browser login is separate from this app.',
+    zh: '在新窗口中完成登录并关闭窗口，然后在此测试连接。浏览器的登录状态与此应用分开保存。',
+  },
   'settings.testConnectionRunning': { en: 'Testing…', zh: '测试中…' },
   'settings.testOk': {
     en: 'Reached: {agent} (protocol v{v}) — the link was closed after the handshake',
@@ -547,8 +564,17 @@ export const messages = {
   },
   'settings.startSessionCtaNamed': { en: 'Start a session with {name}', zh: '用 {name} 开始会话' },
   'settings.done': { en: 'Done', zh: '完成' },
+  'side.copyLink': { en: 'Copy link', zh: '复制链接' },
+  'side.linkCopied': { en: 'The link to this chat is on the clipboard.', zh: '这个会话的链接已复制。' },
+  'side.linkCopyFailed': { en: 'The clipboard refused the link.', zh: '剪贴板拒绝了这次复制。' },
   'settings.profileName': { en: 'Profile name', zh: '配置名称' },
   'settings.profileNamePlaceholder': { en: 'e.g. test-agent', zh: '如:test-agent' },
+  'settings.profileSlug': { en: 'Link slug', zh: '链接标识' },
+  'settings.profileSlugPlaceholder': { en: 'e.g. principal', zh: '如:principal' },
+  'settings.profileSlugHint': {
+    en: 'The name of this family in a chat link. It never changes when you rename the profile.',
+    zh: '这个家庭在会话链接里的名字。改名不会改它。',
+  },
   'settings.endpoint': { en: 'Endpoint', zh: '端点地址' },
   'settings.defaultWorkspace': { en: 'Default workspace', zh: '默认工作区' },
   'settings.workspaceTooltip': {
@@ -573,6 +599,8 @@ export const messages = {
     zh: '删除 MCP 服务器「{name}」?有 {n} 个 agent 配置正在使用它。',
   },
   'settings.nameRequired': { en: 'Profile name is required', zh: '配置名称不能为空' },
+  'settings.slugInvalid': { en: 'A slug is lowercase letters, digits and dashes', zh: '标识只能是小写字母、数字和短横线' },
+  'settings.slugTaken': { en: 'Another family already uses that slug', zh: '另一个家庭已经用了这个标识' },
   'settings.endpointRequired': { en: 'Endpoint is required', zh: '端点地址不能为空' },
   'settings.pathRequired': { en: 'A local directory needs a path', zh: '本机文件夹需要路径' },
   'settings.mcpNameRequired': { en: 'Server name is required', zh: '服务器名称不能为空' },
@@ -631,6 +659,14 @@ export const messages = {
   },
   'lifecycle.switching': { en: 'Switching session…', zh: '切换会话中…' },
 
+  // ---- session loading (the column while a session switch replays) ----
+  'session.loading': { en: 'Loading session…', zh: '正在加载会话…' },
+  'session.openFailedTitle': { en: 'Chat unavailable', zh: '会话不可用' },
+  'session.openFailed': {
+    en: 'Could not open this chat. Check the agent connection, then try again or choose another chat.',
+    zh: '无法打开此会话。请检查 agent 连接后重试，或选择其他会话。',
+  },
+
   // ---- live connection driver ----
   'live.switchFailedTitled': {
     en: 'Switching to “{title}” failed: {reason}',
@@ -638,6 +674,8 @@ export const messages = {
   },
   'live.retrySwitch': { en: 'Retry', zh: '重试' },
   'live.notice.unknownConnection': { en: 'That connection no longer exists.', zh: '该连接已不存在。' },
+  'live.notice.unknownChat': { en: 'That chat is unknown to its family.', zh: '该家庭不认识这个会话。' },
+  'live.notice.chatUnavailable': { en: 'That family did not come up, so the chat stays closed.', zh: '该家庭没有连上，会话没有打开。' },
   'settings.notice.saveFailed': {
     en: 'Could not save the agent configuration (storage rejected the write).',
     zh: 'agent 配置保存失败(存储写入被拒)。',

@@ -12,7 +12,7 @@ import {
   foregroundConnection,
   logoutLiveConnection,
   newLiveSession,
-  openLiveSession,
+  openChatRoute,
   persistSessionsSnapshot,
   reconnectLiveConnection,
   seedProfileSlots,
@@ -29,6 +29,7 @@ import {
 
 export type { ReconnectOptions };
 import { profileToLiveTarget, type AgentProfile } from './profiles';
+import type { ChatId } from './chatId';
 import type { ForegroundSessionController } from './session-controller';
 
 /**
@@ -72,7 +73,7 @@ export function useLiveSession() {
       foreground: foregroundConnection,
       authenticate: (methodId: string) => authenticateLiveConnection(methodId),
       logout: () => logoutLiveConnection(),
-      openSession: openLiveSession,
+      openChatRoute,
       send: (content) => sendLive(content),
       resolvePermission: (toolCallId, kind) => resolveLivePermission(toolCallId, kind),
       resolveElicitation: (id, response) => resolveLiveElicitation(id, response),
@@ -117,7 +118,10 @@ export interface LiveSessionFacade extends ForegroundSessionController {
   authenticate: (methodId: string) => void;
   /** v1 `logout` on the foreground connection (gated by auth.logout). */
   logout: () => void;
-  openSession: typeof openLiveSession;
+  /** Opens the chat a route names (ADR 0010): the family connects, then the
+   * session is loaded on it. The route is the one truth: every move to a
+   * chat is a route, and the route opens it. */
+  openChatRoute: (id: ChatId, signal?: AbortSignal) => Promise<boolean>;
   cancel: typeof cancelLiveTurn;
   /** Creates a session; the optional id names the target connection (the
    * row the user clicked), foreground follows it (bug hunt #5). */
